@@ -1,0 +1,11 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: insyx-backend
+    environment:
+      PORT: "3000"
+      CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+    ports:
+      - "3000:3000"

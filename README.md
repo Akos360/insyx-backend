@@ -1,39 +1,72 @@
-# Insyx - backend
+# Insyx Backend
 
+Backend API for the Insyx project, built with NestJS and TypeScript.
 
-## TechStack
-- NodeJs
-- [NestJs](https://github.com/nestjs/nest) 
+## Technology Stack
+- `Node.js`: JavaScript runtime for server-side execution.
+- `NestJS`: Structured backend framework (modules, controllers, services).
+- `TypeScript`: Static typing and safer refactoring.
+- `Jest`: Unit and e2e test framework.
+- `ESLint` + `Prettier`: Linting and formatting.
+- `Docker` + `Docker Compose`: Containerized local/dev deployment.
 
-## Project setup
+## What This Service Provides
+- REST API endpoints under `/papers`.
+- CORS-enabled API for frontend clients (`localhost:5173`, `localhost:8080` by default).
+- Configurable `PORT` and `CORS_ORIGINS` via environment variables.
 
-```bash
-$ npm install
+## Project Structure
+```text
+insyx-backend/
+|-- src/
+|   |-- main.ts
+|   |-- app.module.ts
+|   |-- app.controller.ts
+|   |-- app.service.ts
+|   `-- papers/
+|       |-- papers.module.ts
+|       |-- papers.controller.ts
+|       `-- papers.service.ts
+|-- test/
+|   |-- app.e2e-spec.ts
+|   `-- jest-e2e.json
+|-- Dockerfile
+|-- docker-compose.yml
+|-- package.json
+`-- tsconfig.json
 ```
 
-## Compile and run the project
+## Run With Docker (Recommended)
+From the backend repository root:
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+docker compose up --build
 ```
 
-<!-- 
-## Run tests
+API will be available at `http://localhost:3000`.
+
+Stop containers:
 
 ```bash
-# unit tests
-$ npm run test
+docker compose down
+```
 
-# e2e tests
-$ npm run test:e2e
+## Run Without Docker
+Install dependencies:
 
-# test coverage
-$ npm run test:cov
-``` -->
+```bash
+npm install
+```
+
+Run in development:
+
+```bash
+npm run start:dev
+```
+
+Build and run production:
+
+```bash
+npm run build
+npm run start:prod
+```
