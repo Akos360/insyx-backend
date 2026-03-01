@@ -1,11 +1,35 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: insyx-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-insyx}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-insyx}
+      POSTGRES_DB: ${DB_NAME:-insyx}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   backend:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: insyx-backend
+    depends_on:
+      - postgres
     environment:
-      PORT: "3000"
-      CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+      PORT: ${PORT:-3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
+      DB_ENABLED: ${DB_ENABLED:-false}
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-insyx}
+      DB_PASSWORD: ${DB_PASSWORD:-insyx}
+      DB_NAME: ${DB_NAME:-insyx}
+      DB_SSL: ${DB_SSL:-false}
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:3000"
+
+volumes:
+  postgres_data:

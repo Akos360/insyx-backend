@@ -43,7 +43,11 @@ From the backend repository root:
 docker compose up --build
 ```
 
-API will be available at `http://localhost:3000`.
+This starts:
+- `insyx-backend` on `http://localhost:3000`
+- `insyx-postgres` on `localhost:5432`
+
+Environment values are read from `.env`.
 
 Stop containers:
 
