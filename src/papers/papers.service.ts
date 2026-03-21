@@ -1,38 +1,20 @@
 import { Injectable } from '@nestjs/common';
-
-export type Paper = {
-  id: string;
-  title: string;
-  year: number;
-  authors: string[];
-  abstract: string;
-};
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Paper } from './paper.entity';
 
 @Injectable()
 export class PapersService {
-  private readonly papers: Paper[] = [
-    {
-      id: 'p1',
-      title: 'Graph Neural Networks for Citation Discovery',
-      year: 2024,
-      authors: ['A. Kovacs', 'L. Nagy'],
-      abstract:
-        'A toy paper object used to verify frontend-backend connectivity during development.',
-    },
-    {
-      id: 'p2',
-      title: 'Practical Retrieval for Academic Search',
-      year: 2023,
-      authors: ['J. Smith'],
-      abstract: 'Second demo record for simple endpoint testing.',
-    },
-  ];
+  constructor(
+    @InjectRepository(Paper)
+    private readonly papersRepository: Repository<Paper>,
+  ) {}
 
-  findAll(): Paper[] {
-    return this.papers;
+  findAll(): Promise<Paper[]> {
+    return this.papersRepository.find();
   }
 
-  findById(id: string): Paper | undefined {
-    return this.papers.find((paper) => paper.id === id);
+  findById(id: string): Promise<Paper | null> {
+    return this.papersRepository.findOneBy({ id });
   }
 }

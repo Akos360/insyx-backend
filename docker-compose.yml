@@ -21,13 +21,11 @@ services:
     environment:
       PORT: ${PORT:-3000}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
-      DB_ENABLED: ${DB_ENABLED:-false}
-      DB_HOST: ${DB_HOST:-postgres}
+      DB_HOST: postgres
       DB_PORT: ${DB_PORT:-5432}
       DB_USER: ${DB_USER:-insyx}
       DB_PASSWORD: ${DB_PASSWORD:-insyx}
       DB_NAME: ${DB_NAME:-insyx}
-      DB_SSL: ${DB_SSL:-false}
     ports:
       - "${PORT:-3000}:3000"
 
