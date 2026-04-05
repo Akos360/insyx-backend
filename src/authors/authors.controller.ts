@@ -8,6 +8,13 @@ import { Author } from './author.entity';
 export class AuthorsController {
   constructor(private readonly authorsService: AuthorsService) {}
 
+  @Get()
+  @ApiOperation({ summary: 'Get all unique authors with paper count' })
+  @ApiResponse({ status: 200, description: 'List of unique authors' })
+  getAll() {
+    return this.authorsService.findAll();
+  }
+
   @Get('paper/:paperId')
   @ApiOperation({ summary: 'Get all authors for a paper' })
   @ApiParam({ name: 'paperId', description: 'OpenAlex work ID', example: 'W2963403868' })

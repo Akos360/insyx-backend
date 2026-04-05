@@ -1,76 +1,82 @@
 # Insyx Backend
 
-Backend API for the Insyx project, built with NestJS and TypeScript.
+REST API for Insyx — a Science-of-Science Explorer. Built with NestJS and TypeScript, backed by PostgreSQL via TypeORM.
 
 ## Technology Stack
-- `Node.js`: JavaScript runtime for server-side execution.
-- `NestJS`: Structured backend framework (modules, controllers, services).
-- `TypeScript`: Static typing and safer refactoring.
-- `Jest`: Unit and e2e test framework.
-- `ESLint` + `Prettier`: Linting and formatting.
-- `Docker` + `Docker Compose`: Containerized local/dev deployment.
 
-## What This Service Provides
-- REST API endpoints under `/papers`.
-- CORS-enabled API for frontend clients (`localhost:5173`, `localhost:8080` by default).
-- Configurable `PORT` and `CORS_ORIGINS` via environment variables.
+- `NestJS` — structured backend framework (modules, controllers, services)
+- `TypeScript` — static typing
+- `TypeORM` — ORM for PostgreSQL
+- `PostgreSQL` — relational database
+- `Swagger` — auto-generated API docs at `/api`
+- `Jest` — unit and e2e tests
+- `ESLint` + `Prettier` — linting and formatting
+- `Docker` + `Docker Compose` — containerized local deployment
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/papers` | All papers |
+| GET | `/papers/:id` | Single paper by OpenAlex work ID |
+| GET | `/authors` | All authors with paper count |
+| GET | `/authors/:authorId` | All paper records for a single author |
+| GET | `/authors/paper/:paperId` | All authors for a given paper |
+
+Interactive docs available at `http://localhost:3000/api` when the server is running.
 
 ## Project Structure
+
 ```text
 insyx-backend/
-|-- src/
-|   |-- main.ts
-|   |-- app.module.ts
-|   |-- app.controller.ts
-|   |-- app.service.ts
-|   `-- papers/
-|       |-- papers.module.ts
-|       |-- papers.controller.ts
-|       `-- papers.service.ts
-|-- test/
-|   |-- app.e2e-spec.ts
-|   `-- jest-e2e.json
-|-- Dockerfile
-|-- docker-compose.yml
-|-- package.json
-`-- tsconfig.json
+├── src/
+│   ├── main.ts
+│   ├── app.module.ts
+│   ├── papers/
+│   │   ├── papers.module.ts
+│   │   ├── papers.controller.ts
+│   │   ├── papers.service.ts
+│   │   └── paper.entity.ts
+│   └── authors/
+│       ├── authors.module.ts
+│       ├── authors.controller.ts
+│       ├── authors.service.ts
+│       └── author.entity.ts
+├── test/
+├── Dockerfile
+├── docker-compose.yml
+├── package.json
+└── tsconfig.json
 ```
 
-## Run With Docker (Recommended)
-From the backend repository root:
+## Run With Docker
+
+Starts the backend and a PostgreSQL container:
 
 ```bash
 docker compose up --build
 ```
 
-This starts:
-- `insyx-backend` on `http://localhost:3000`
-- `insyx-postgres` on `localhost:5432`
-
-Environment values are read from `.env`.
-
-Stop containers:
+- Backend: `http://localhost:3000`
+- PostgreSQL: `localhost:5432`
 
 ```bash
 docker compose down
 ```
 
 ## Run Without Docker
-Install dependencies:
 
 ```bash
 npm install
+npm run start:dev     # dev server with hot reload
+npm run build         # compile TypeScript
+npm run start:prod    # run compiled build
 ```
 
-Run in development:
+## Tests
 
 ```bash
-npm run start:dev
-```
-
-Build and run production:
-
-```bash
-npm run build
-npm run start:prod
+npm run test          # unit tests
+npm run test:e2e      # e2e tests
+npm run test:cov      # coverage report
 ```
