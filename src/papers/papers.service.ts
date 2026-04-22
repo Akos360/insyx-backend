@@ -17,4 +17,14 @@ export class PapersService {
   findById(id: string): Promise<Paper | null> {
     return this.papersRepository.findOneBy({ id });
   }
+
+  search(q: string): Promise<Paper[]> {
+    return this.papersRepository
+      .createQueryBuilder('p')
+      .where('p.title ILIKE :q', { q: `%${q}%` })
+      .orWhere('p.abstract ILIKE :q', { q: `%${q}%` })
+      .orderBy('p.citedByCount', 'DESC')
+      .limit(20)
+      .getMany();
+  }
 }

@@ -1,5 +1,5 @@
-import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiParam, ApiResponse } from '@nestjs/swagger';
+import { Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { PapersService } from './papers.service';
 import { Paper } from './paper.entity';
 
@@ -13,6 +13,13 @@ export class PapersController {
   @ApiResponse({ status: 200, description: 'List of all papers', type: [Paper] })
   getAll(): Promise<Paper[]> {
     return this.papersService.findAll();
+  }
+
+  @Get('search')
+  @ApiOperation({ summary: 'Search papers by title or abstract' })
+  @ApiQuery({ name: 'q', required: true, type: String })
+  searchPapers(@Query('q') q = ''): Promise<Paper[]> {
+    return this.papersService.search(q);
   }
 
   @Get(':id')
