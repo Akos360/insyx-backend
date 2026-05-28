@@ -43,7 +43,7 @@ insyx-backend/
 ```
 
 ## Run With Docker (Recommended)
-Start the lakehouse stack first from `insyx-database`:
+Start the lakehouse stack first from `insyx-database` (https://github.com/Good03/insyx-database):
 
 ```bash
 make up
