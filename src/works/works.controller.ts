@@ -5,6 +5,16 @@ import { WorksService } from './works.service';
 export class WorksController {
   constructor(private readonly works: WorksService) {}
 
+  @Get('health')
+  health() {
+    return this.works.health();
+  }
+
+  @Get('summary')
+  summary() {
+    return this.works.summary();
+  }
+
   // GET /works?year=2022&domain=Biology&is_oa=true&limit=20
   @Get()
   findAll(
@@ -24,7 +34,6 @@ export class WorksController {
       field: q.field,
       is_oa: q.is_oa ? q.is_oa === 'true' : undefined,
       limit: q.limit ? Number(q.limit) : 20,
-      offset: q.offset ? Number(q.offset) : 0,
     });
   }
 
@@ -38,6 +47,21 @@ export class WorksController {
     return this.works.statsByDomain();
   }
 
+  @Get('stats/by-institution')
+  statsByInstitution(@Query('limit') limit?: string) {
+    return this.works.statsByInstitution(limit ? Number(limit) : undefined);
+  }
+
+  @Get('stats/topic-growth')
+  topicGrowth(@Query('limit') limit?: string) {
+    return this.works.topicGrowth(limit ? Number(limit) : undefined);
+  }
+
+  @Get('stats/citation-age')
+  citationAge(@Query('limit') limit?: string) {
+    return this.works.citationAge(limit ? Number(limit) : undefined);
+  }
+
   @Get('stats/oa-ratio')
   oaRatio() {
     return this.works.oaRatioByYear();
@@ -46,6 +70,21 @@ export class WorksController {
   @Get(':id/co-authors')
   coAuthors(@Param('id') id: string) {
     return this.works.coAuthors(id);
+  }
+
+  @Get(':id/documents')
+  documents(@Param('id') id: string) {
+    return this.works.documents(id);
+  }
+
+  @Get(':id/text')
+  text(@Param('id') id: string) {
+    return this.works.text(id);
+  }
+
+  @Get(':id/provenance')
+  provenance(@Param('id') id: string) {
+    return this.works.provenance(id);
   }
 
   @Get(':id')

@@ -10,19 +10,19 @@ export class TrinoService implements OnModuleInit {
   constructor(private readonly configService: ConfigService) {}
 
   onModuleInit() {
+    const server = this.configService.get<string>('TRINO_HOST') ?? 'http://localhost:8080';
+    const catalog = this.configService.get<string>('TRINO_CATALOG') ?? 'iceberg';
+    const schema = this.configService.get<string>('TRINO_SCHEMA') ?? 'scisci';
+    const user = this.configService.get<string>('TRINO_USER') ?? 'backend';
+    const password = this.configService.get<string>('TRINO_PASSWORD');
+
     this.client = Trino.create({
-      server:
-        this.configService.getOrThrow<string>('TRINO_HOST') ??
-        'http://localhost:8080',
-      catalog: 'iceberg',
-      schema: 'scisci',
-      auth: new BasicAuth(
-        this.configService.getOrThrow<string>('TRINO_USER') ?? 'backend',
-      ),
+      server,
+      catalog,
+      schema,
+      auth: new BasicAuth(user, password),
     });
-    this.logger.log(
-      `Connected to Trino at ${this.configService.getOrThrow<string>('TRINO_HOST')}`,
-    );
+    this.logger.log(`Configured Trino connection: ${server}/${catalog}/${schema} as ${user}`);
   }
 
   async query<T = Record<string, unknown>>(sql: string): Promise<T[]> {
@@ -50,5 +50,10 @@ export class TrinoService implements OnModuleInit {
       this.logger.error(`Query failed: ${sql}`, error);
       throw error;
     }
+  }
+
+  async health(): Promise<{ ok: boolean; rows: Record<string, unknown>[] }> {
+    const rows = await this.query('SELECT current_catalog AS catalog, current_schema AS schema');
+    return { ok: true, rows };
   }
 }
