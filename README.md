@@ -60,6 +60,12 @@ docker compose up --build
 - Backend: `http://localhost:3000`
 - PostgreSQL: `localhost:5432`
 
+Rebuild backend only (DB data is persisted in the `postgres_data` volume and is not affected):
+
+```bash
+docker compose up --build backend
+```
+
 ```bash
 docker compose down
 ```
@@ -72,6 +78,33 @@ npm run start:dev     # dev server with hot reload
 npm run build         # compile TypeScript
 npm run start:prod    # run compiled build
 ```
+
+## Data Utilities
+
+### `src/seed.ts` — sample dataset
+
+Contains ~51 hardcoded papers and ~200 authors. Used for local development and testing before real data is available.
+
+```bash
+npx ts-node src/seed.ts
+```
+
+### `src/import-data.ts` — bulk data import
+
+Imports a large OpenAlex JSON export into the database. Built for the 100k-record AI subfield dataset (`data/ai_subfield_100k_all_columns.json`) but compatible with any export following the same schema.
+
+What it does:
+- Truncates `authors`, then `works` tables
+- Reads and parses the full JSON file into memory
+- Inserts works in batches of 500 using raw `pg` queries for performance
+- Parses the `full_authors_info` field (semicolon-separated format) to populate the `authors` table
+- Handles type coercions: string numerics → integers/floats, `"Yes"/"No"` → boolean, plain-text JSONB fields → valid JSON strings
+
+```bash
+npx ts-node src/import-data.ts
+```
+
+The JSON file is expected at `../data/ai_subfield_100k_all_columns.json` relative to the backend root. Columns not mapped to the DB schema (`funders`, `grants`, `source_host_name`, `source_issn`, `cited_by_count_int`, `embedding`) are silently skipped.
 
 ## Tests
 
