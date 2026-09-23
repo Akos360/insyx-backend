@@ -94,6 +94,21 @@ export class WorksController {
     return this.works.coAuthors(id);
   }
 
+  @Get(':id/documents')
+  documents(@Param('id') id: string) {
+    return this.works.documents(id);
+  }
+
+  @Get(':id/text')
+  text(@Param('id') id: string) {
+    return this.works.text(id);
+  }
+
+  @Get(':id/provenance')
+  provenance(@Param('id') id: string) {
+    return this.works.provenance(id);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.works.findOne(id);

@@ -287,4 +287,91 @@ export class WorksService {
       ORDER BY display_name ASC
     `);
   }
+
+  async documents(workId: string) {
+    return this.trino.query(`
+      SELECT
+        document_id,
+        source_system,
+        landing_page_url,
+        pdf_url,
+        text_object_path,
+        license,
+        is_publicly_shareable,
+        extraction_status
+      FROM ${LAKEHOUSE}.documents
+      WHERE work_id = ${sqlString(workId)}
+      LIMIT 20
+    `);
+  }
+
+  async text(workId: string) {
+    const rows = await this.trino.query(`
+      SELECT
+        w.id,
+        w.title,
+        w.abstract,
+        w.publication_year,
+        w.source_name,
+        d.document_id,
+        d.source_system,
+        d.landing_page_url,
+        d.pdf_url,
+        d.text_object_path,
+        d.license,
+        d.is_publicly_shareable,
+        d.extraction_status
+      FROM ${LAKEHOUSE}.works w
+      LEFT JOIN ${LAKEHOUSE}.documents d ON d.work_id = w.id
+      WHERE w.id = ${sqlString(workId)}
+      LIMIT 20
+    `);
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    const first = rows[0];
+    return {
+      id: first.id,
+      title: first.title,
+      abstract: first.abstract,
+      publication_year: first.publication_year,
+      source_name: first.source_name,
+      note:
+        'Current demo stores title and abstract in works. Real extracted full text should be stored in MinIO and referenced by text_object_path.',
+      documents: rows.map((row) => ({
+        document_id: row.document_id,
+        source_system: row.source_system,
+        landing_page_url: row.landing_page_url,
+        pdf_url: row.pdf_url,
+        text_object_path: row.text_object_path,
+        license: row.license,
+        is_publicly_shareable: row.is_publicly_shareable,
+        extraction_status: row.extraction_status,
+      })),
+    };
+  }
+
+  async provenance(workId: string) {
+    return this.trino.query(`
+      SELECT
+        event_id,
+        entity_type,
+        entity_id,
+        source_system,
+        source_record_id,
+        source_url,
+        license,
+        payload_hash,
+        pipeline_version,
+        ingested_at,
+        ingested_date
+      FROM ${LAKEHOUSE}.provenance_events
+      WHERE entity_type = 'work'
+        AND entity_id = ${sqlString(workId)}
+      ORDER BY ingested_at DESC
+      LIMIT 20
+    `);
+  }
 }
