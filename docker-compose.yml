@@ -7,7 +7,10 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-insyx}
       POSTGRES_DB: ${DB_NAME:-insyx}
     ports:
-      - "${DB_PORT:-5432}:5432"
+      # Host-side port only; changing this does not affect the backend container,
+      # which always reaches Postgres at postgres:5432 over the internal Docker network.
+      # Default moved off 5432 — insyx-database's own Postgres also claims 5432 on the host.
+      - "${DB_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -20,12 +23,19 @@ services:
       - postgres
     environment:
       PORT: ${PORT:-3000}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8081,http://localhost:5173}
       DB_HOST: postgres
-      DB_PORT: ${DB_PORT:-5432}
+      DB_PORT: 5432
       DB_USER: ${DB_USER:-insyx}
       DB_PASSWORD: ${DB_PASSWORD:-insyx}
       DB_NAME: ${DB_NAME:-insyx}
+      # insyx-database's Trino runs on the host (a separate docker-compose project),
+      # not on this network — host.docker.internal is Docker Desktop's alias for the
+      # host machine. 127.0.0.1 here would point at this container itself.
+      TRINO_HOST: http://host.docker.internal:8080
+      TRINO_CATALOG: ${TRINO_CATALOG:-iceberg}
+      TRINO_SCHEMA: ${TRINO_SCHEMA:-scisci}
+      TRINO_USER: ${TRINO_USER:-insyx-backend}
     ports:
       - "${PORT:-3000}:3000"
 

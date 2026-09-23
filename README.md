@@ -58,7 +58,7 @@ docker compose up --build
 ```
 
 - Backend: `http://localhost:3000`
-- PostgreSQL: `localhost:5432`
+- PostgreSQL: `localhost:5433` (host-published port; moved off 5432, see `DB_HOST_PORT` in `.env.example`)
 
 Rebuild backend only (DB data is persisted in the `postgres_data` volume and is not affected):
 
@@ -81,12 +81,15 @@ npm run start:prod    # run compiled build
 
 ## Data Utilities
 
-### `src/seed.ts` — sample dataset
+### `src/seed-sample-data.ts` — sample dataset (gitignored, local dev only)
 
-Contains ~51 hardcoded papers and ~200 authors. Used for local development and testing before real data is available.
+Contains ~46 hardcoded papers and ~140 authors. Not real OpenAlex data, and not what
+the SearchPage/works list reads (that's real data from the Trino lakehouse). Only
+still used by pages not yet migrated off Postgres — charts, globe panel, paper/author
+detail. For the real 100k dataset, use `import-data.ts` below instead.
 
 ```bash
-npx ts-node src/seed.ts
+npx ts-node src/seed-sample-data.ts
 ```
 
 ### `src/import-data.ts` — bulk data import

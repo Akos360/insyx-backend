@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { PapersModule } from './papers/papers.module';
 import { AuthorsModule } from './authors/authors.module';
 import { InstitutionsModule } from './institutions/institutions.module';
+import { WorksModule } from './works/works.module';
 import { Paper } from './papers/paper.entity';
 import { Author } from './authors/author.entity';
 
@@ -29,6 +30,7 @@ import { Author } from './authors/author.entity';
     PapersModule,
     AuthorsModule,
     InstitutionsModule,
+    WorksModule,
   ],
   controllers: [AppController],
   providers: [AppService],

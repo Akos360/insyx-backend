@@ -12,7 +12,7 @@ async function bootstrap() {
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup("api", app, document);
-  const corsOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173,http://localhost:8080")
+  const corsOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173,http://localhost:8081")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);

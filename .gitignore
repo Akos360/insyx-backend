@@ -57,5 +57,5 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-# seed data
-seed.ts
+# sample seed data (local dev scaffolding, not real data)
+seed-sample-data.ts

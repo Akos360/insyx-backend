@@ -30,6 +30,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "swagger-ui-express": "^5.0.1",
+    "trino-client": "^0.2.9",
     "typeorm": "^0.3.28"
   },
   "devDependencies": {
