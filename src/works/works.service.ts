@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { TrinoService } from '../database/trino.service';
+import { CENTROIDS, MapQuery, maxCount, jitter, inBbox, emptyFC } from '../common/geo.util';
 
 const LAKEHOUSE = 'iceberg.scisci';
 
@@ -34,6 +35,25 @@ export interface WorksPage {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface WorkDetail {
+  id: string;
+  doi: string | null;
+  title: string;
+  abstract: string | null;
+  publication_year: number;
+  domain: string | null;
+  field: string | null;
+  subfield: string | null;
+  primary_topic: string | null;
+  keywords: string | null;
+  cited_by_count: number;
+  is_oa: boolean;
+  oa_url: string | null;
+  pdf_url: string | null;
+  source_name: string | null;
+  authors: string | null;
 }
 
 const SORTABLE_COLUMNS = {
@@ -183,9 +203,16 @@ export class WorksService {
     return rows.map((r) => r.field);
   }
 
-  async findOne(id: string): Promise<Record<string, unknown> | null> {
-    const rows = await this.trino.query(`
-      SELECT *
+  async findOne(id: string): Promise<WorkDetail | null> {
+    // Explicit column list, not SELECT * — the lakehouse `works` table also carries
+    // large JSONB-as-string blobs (concepts_full, keywords_full, references_full,
+    // related_full, full_authors_info) that no frontend consumer of this endpoint
+    // (PaperPage, GlobePanel's WorkView) ever reads.
+    const rows = await this.trino.query<WorkDetail>(`
+      SELECT
+        id, doi, title, abstract, publication_year, domain, field, subfield,
+        primary_topic, keywords, cited_by_count, is_oa, oa_url, pdf_url,
+        source_name, authors
       FROM ${LAKEHOUSE}.works
       WHERE id = ${sqlString(id)}
       LIMIT 1
@@ -193,7 +220,10 @@ export class WorksService {
     return rows[0] ?? null;
   }
 
-  async statsByYear(): Promise<YearStat[]> {
+  async statsByYear(filters: WorkFilters = {}): Promise<YearStat[]> {
+    const conditions = buildWorkConditions(filters);
+    conditions.push('publication_year IS NOT NULL');
+    const where = `WHERE ${conditions.join(' AND ')}`;
     return this.trino.query<YearStat>(`
       SELECT
         publication_year,
@@ -201,75 +231,75 @@ export class WorksService {
         AVG(cited_by_count) AS avg_citations,
         SUM(cited_by_count) AS total_citations
       FROM ${LAKEHOUSE}.works
-      WHERE publication_year IS NOT NULL
+      ${where}
       GROUP BY publication_year
       ORDER BY publication_year ASC
     `);
   }
 
-  async statsByDomain(limit?: number) {
-    return this.trino.query(`
+  async statsByField(filters: WorkFilters = {}, limit?: number) {
+    const conditions = buildWorkConditions(filters);
+    conditions.push('field IS NOT NULL');
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    return this.trino.query<{ field: string; paper_count: number; avg_citations: number }>(`
       SELECT
-        domain,
+        field,
         COUNT(*)            AS paper_count,
         AVG(cited_by_count) AS avg_citations
       FROM ${LAKEHOUSE}.works
-      WHERE domain IS NOT NULL
-      GROUP BY domain
+      ${where}
+      GROUP BY field
       ORDER BY paper_count DESC
       LIMIT ${boundedLimit(limit, 20)}
     `);
   }
 
-  async statsByInstitution(limit?: number) {
-    return this.trino.query(`
-      SELECT
-        institution_id,
-        MAX(institution_name) AS institution_name,
-        MAX(country_code)     AS country_code,
-        COUNT(DISTINCT work_id) AS paper_count
-      FROM ${LAKEHOUSE}.work_institutions
-      GROUP BY institution_id
-      ORDER BY paper_count DESC
-      LIMIT ${boundedLimit(limit, 20)}
+  async scatterSample(filters: WorkFilters = {}, limit?: number) {
+    const conditions = buildWorkConditions(filters);
+    conditions.push('publication_year IS NOT NULL');
+    conditions.push('cited_by_count IS NOT NULL');
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    return this.trino.query<{ publication_year: number; cited_by_count: number; title: string }>(`
+      SELECT publication_year, cited_by_count, title
+      FROM ${LAKEHOUSE}.works
+      ${where}
+      ORDER BY rand()
+      LIMIT ${boundedLimit(limit, 500, 2000)}
     `);
   }
 
-  async topicGrowth(limit?: number) {
-    return this.trino.query(`
-      SELECT
-        publication_year,
-        display_name AS topic,
-        COUNT(DISTINCT work_id) AS paper_count,
-        AVG(score) AS avg_score
-      FROM ${LAKEHOUSE}.work_topics
-      GROUP BY publication_year, display_name
-      ORDER BY publication_year ASC, paper_count DESC
-      LIMIT ${boundedLimit(limit, 100, 500)}
+  async fieldPeriodStats(filters: WorkFilters = {}) {
+    const conditions = buildWorkConditions(filters);
+    conditions.push('field IS NOT NULL');
+    conditions.push('publication_year IS NOT NULL');
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const periodCase = `
+      CASE
+        WHEN publication_year BETWEEN 2012 AND 2015 THEN 0
+        WHEN publication_year BETWEEN 2016 AND 2019 THEN 1
+        WHEN publication_year BETWEEN 2020 AND 2023 THEN 2
+      END`;
+    const rows = await this.trino.query<{ field: string; period_index: number | null; paper_count: number }>(`
+      SELECT field, ${periodCase} AS period_index, COUNT(*) AS paper_count
+      FROM ${LAKEHOUSE}.works
+      ${where}
+      GROUP BY field, ${periodCase}
     `);
+    return rows.filter((r) => r.period_index !== null);
   }
 
-  async citationAge(limit?: number) {
-    return this.trino.query(`
-      SELECT
-        citation_age,
-        COUNT(*) AS citation_count
-      FROM ${LAKEHOUSE}.citations
-      GROUP BY citation_age
-      ORDER BY citation_age ASC
-      LIMIT ${boundedLimit(limit, 100, 500)}
-    `);
-  }
-
-  async oaRatioByYear() {
-    return this.trino.query(`
+  async oaRatioByYear(filters: WorkFilters = {}) {
+    const conditions = buildWorkConditions(filters);
+    conditions.push('publication_year IS NOT NULL');
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    return this.trino.query<{ publication_year: number; total: number; oa_count: number; oa_pct: number }>(`
       SELECT
         publication_year,
         COUNT(*) AS total,
         COUNT(CASE WHEN is_oa = true THEN 1 END) AS oa_count,
         ROUND(100.0 * COUNT(CASE WHEN is_oa = true THEN 1 END) / COUNT(*), 1) AS oa_pct
       FROM ${LAKEHOUSE}.works
-      WHERE publication_year IS NOT NULL
+      ${where}
       GROUP BY publication_year
       ORDER BY publication_year ASC
     `);
@@ -288,90 +318,180 @@ export class WorksService {
     `);
   }
 
-  async documents(workId: string) {
-    return this.trino.query(`
-      SELECT
-        document_id,
-        source_system,
-        landing_page_url,
-        pdf_url,
-        text_object_path,
-        license,
-        is_publicly_shareable,
-        extraction_status
-      FROM ${LAKEHOUSE}.documents
-      WHERE work_id = ${sqlString(workId)}
-      LIMIT 20
+
+  // ── authors ────────────────────────────────────────────────────────────
+
+  async searchAuthors(params: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+    sortBy?: 'displayName' | 'worksCount' | 'citedByCount';
+    sortDir?: 'asc' | 'desc';
+  }) {
+    const conditions: string[] = [];
+    if (params.search) {
+      const term = sqlString(`%${params.search.trim()}%`);
+      conditions.push(`LOWER(display_name) LIKE LOWER(${term})`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = boundedLimit(params.limit, 50);
+    const offset = boundedOffset(params.offset);
+    const sortColumnMap = {
+      displayName: 'display_name',
+      worksCount: 'works_count',
+      citedByCount: 'cited_by_count',
+    } as const;
+    const sortColumn = sortColumnMap[params.sortBy ?? 'worksCount'] ?? 'works_count';
+    const sortDir = params.sortDir === 'asc' ? 'ASC' : 'DESC';
+
+    const items = await this.trino.query(`
+      SELECT author_id, display_name, orcid, country_code, works_count, cited_by_count
+      FROM ${LAKEHOUSE}.authors
+      ${where}
+      ORDER BY ${sortColumn} ${sortDir}
+      OFFSET ${offset} LIMIT ${limit}
     `);
+    const countRows = await this.trino.query<{ total: number }>(`
+      SELECT COUNT(*) AS total FROM ${LAKEHOUSE}.authors ${where}
+    `);
+    return { items, total: Number(countRows[0]?.total ?? 0), limit, offset };
   }
 
-  async text(workId: string) {
-    const rows = await this.trino.query(`
+  async authorDetail(authorId: string) {
+    const papers = await this.trino.query<{
+      id: string;
+      title: string;
+      publication_year: number;
+      field: string;
+      domain: string;
+      cited_by_count: number;
+      is_oa: boolean;
+      source_name: string;
+      display_name: string;
+      orcid: string;
+      country_code: string;
+      first_institution_name: string;
+    }>(`
       SELECT
-        w.id,
-        w.title,
-        w.abstract,
-        w.publication_year,
-        w.source_name,
-        d.document_id,
-        d.source_system,
-        d.landing_page_url,
-        d.pdf_url,
-        d.text_object_path,
-        d.license,
-        d.is_publicly_shareable,
-        d.extraction_status
-      FROM ${LAKEHOUSE}.works w
-      LEFT JOIN ${LAKEHOUSE}.documents d ON d.work_id = w.id
-      WHERE w.id = ${sqlString(workId)}
-      LIMIT 20
+        w.id, w.title, w.publication_year, w.field, w.domain, w.cited_by_count, w.is_oa, w.source_name,
+        wa.display_name, wa.orcid, wa.country_code, wa.first_institution_name
+      FROM ${LAKEHOUSE}.work_authors wa
+      JOIN ${LAKEHOUSE}.works w ON w.id = wa.work_id
+      WHERE wa.author_id = ${sqlString(authorId)}
+      ORDER BY w.publication_year DESC
     `);
-
-    if (rows.length === 0) {
+    if (papers.length === 0) {
       return null;
     }
-
-    const first = rows[0];
+    const first = papers[0];
     return {
-      id: first.id,
-      title: first.title,
-      abstract: first.abstract,
-      publication_year: first.publication_year,
-      source_name: first.source_name,
-      note:
-        'Current demo stores title and abstract in works. Real extracted full text should be stored in MinIO and referenced by text_object_path.',
-      documents: rows.map((row) => ({
-        document_id: row.document_id,
-        source_system: row.source_system,
-        landing_page_url: row.landing_page_url,
-        pdf_url: row.pdf_url,
-        text_object_path: row.text_object_path,
-        license: row.license,
-        is_publicly_shareable: row.is_publicly_shareable,
-        extraction_status: row.extraction_status,
+      authorId,
+      displayName: first.display_name,
+      orcid: first.orcid,
+      countryCode: first.country_code,
+      firstInstitutionName: first.first_institution_name,
+      papers: papers.map((p) => ({
+        id: p.id,
+        title: p.title,
+        publication_year: p.publication_year,
+        field: p.field,
+        domain: p.domain,
+        cited_by_count: p.cited_by_count,
+        is_oa: p.is_oa,
+        source_name: p.source_name,
       })),
     };
   }
 
-  async provenance(workId: string) {
-    return this.trino.query(`
-      SELECT
-        event_id,
-        entity_type,
-        entity_id,
-        source_system,
-        source_record_id,
-        source_url,
-        license,
-        payload_hash,
-        pipeline_version,
-        ingested_at,
-        ingested_date
-      FROM ${LAKEHOUSE}.provenance_events
-      WHERE entity_type = 'work'
-        AND entity_id = ${sqlString(workId)}
-      ORDER BY ingested_at DESC
+  // ── institutions ───────────────────────────────────────────────────────
+
+  async institutionsMap(query: MapQuery) {
+    const rows = await this.trino.query<{
+      id: string;
+      name: string;
+      country_code: string;
+      works_count: number;
+      cited_by_count: number;
+    }>(`
+      SELECT institution_id AS id, display_name AS name, country_code, works_count, cited_by_count
+      FROM ${LAKEHOUSE}.institutions
+      WHERE display_name IS NOT NULL
+    `);
+
+    if (!rows.length) return emptyFC();
+
+    const scored = rows
+      .map((r) => {
+        const wc = Number(r.works_count) || 0;
+        const cc = Number(r.cited_by_count) || 0;
+        return { ...r, rawScore: Math.log1p(wc) * 0.4 + Math.log1p(cc) * 0.6 };
+      })
+      .sort((a, b) => b.rawScore - a.rawScore);
+
+    const maxRaw = scored.reduce((m, r) => Math.max(m, r.rawScore), 0) || 1;
+    const limit = maxCount(query.zoom);
+
+    const features = scored
+      .map((r) => {
+        const score = r.rawScore / maxRaw;
+        const centroid = CENTROIDS[r.country_code] ?? [0, 0];
+        const [jLat, jLng] = jitter(r.id);
+        return { r, score, lat: centroid[0] + jLat, lng: centroid[1] + jLng };
+      })
+      .filter(({ lat, lng }) => inBbox(lat, lng, query))
+      .slice(0, limit);
+
+    return {
+      type: 'FeatureCollection' as const,
+      features: features.map(({ r, score, lat, lng }) => ({
+        type: 'Feature' as const,
+        id: r.id,
+        geometry: { type: 'Point' as const, coordinates: [lng, lat] },
+        properties: {
+          name: r.name,
+          workCount: Number(r.works_count),
+          citationCount: Number(r.cited_by_count),
+          score,
+          countryCode: r.country_code ?? '',
+        },
+      })),
+    };
+  }
+
+  async searchInstitutions(q: string) {
+    const term = sqlString(`%${q}%`);
+    const rows = await this.trino.query<{
+      id: string;
+      name: string;
+      country_code: string;
+      works_count: number;
+      cited_by_count: number;
+    }>(`
+      SELECT institution_id AS id, display_name AS name, country_code, works_count, cited_by_count
+      FROM ${LAKEHOUSE}.institutions
+      WHERE LOWER(display_name) LIKE LOWER(${term})
+      ORDER BY works_count DESC
       LIMIT 20
+    `);
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      countryCode: r.country_code ?? '',
+      workCount: Number(r.works_count),
+      citationCount: Number(r.cited_by_count),
+    }));
+  }
+
+  async institutionWorks(institutionId: string) {
+    return this.trino.query<Work>(`
+      SELECT
+        w.id, w.title, w.publication_year, w.domain, w.field, w.cited_by_count,
+        w.authors, w.is_oa, w.source_name
+      FROM ${LAKEHOUSE}.work_institutions wi
+      JOIN ${LAKEHOUSE}.works w ON w.id = wi.work_id
+      WHERE wi.institution_id = ${sqlString(institutionId)}
+      GROUP BY w.id, w.title, w.publication_year, w.domain, w.field, w.cited_by_count, w.authors, w.is_oa, w.source_name
+      ORDER BY w.cited_by_count DESC
     `);
   }
 }
