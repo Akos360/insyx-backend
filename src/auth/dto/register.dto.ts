@@ -10,8 +10,7 @@ export class RegisterDto {
   @MaxLength(200)
   password: string;
 
-  // Honeypot — a real user never sees or fills this field (hidden via CSS on
-  // the frontend). Any non-empty value here means the submitter is a bot.
+  // Honeypot: hidden via CSS on the frontend, so any value here means a bot filled it.
   @IsOptional()
   @IsEmpty()
   website?: string;

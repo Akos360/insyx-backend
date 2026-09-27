@@ -3,15 +3,8 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { WorksQueryDto } from './works-query.dto';
 
-// Regression test for a real bug caught during manual verification: with
-// ValidationPipe's `enableImplicitConversion: true`, class-transformer's own
-// implicit Boolean(value) cast ran instead of/after the custom @Transform,
-// and Boolean("false") is `true` (any non-empty string is truthy) — so
-// `?is_oa=false` silently behaved identically to `?is_oa=true`. Fixed by
-// removing enableImplicitConversion (main.ts) since every field already has
-// an explicit @Type()/@Transform(). This test exercises the DTO exactly the
-// way ValidationPipe does (plainToInstance, no implicit conversion) so the
-// bug can't silently come back.
+// Regression test: enableImplicitConversion made Boolean("false") true, so ?is_oa=false
+// silently behaved like ?is_oa=true. Fixed by removing it in main.ts; this guards it stays fixed.
 describe('WorksQueryDto', () => {
   async function transformAndValidate(plain: Record<string, string>) {
     const dto = plainToInstance(WorksQueryDto, plain);

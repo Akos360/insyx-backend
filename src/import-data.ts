@@ -31,7 +31,7 @@ function toBool(val: any): boolean {
   return String(val).toLowerCase() === 'yes' || String(val) === 'true' || String(val) === '1';
 }
 
-// Parse "author_id, orcid, display_name, inst_id, inst_name; ..." into author rows
+// raw format: "author_id, orcid, display_name, inst_id, inst_name; ..."
 function parseAuthorsInfo(
   raw: string | null,
   paperId: string,
@@ -110,7 +110,7 @@ async function insertWorks(client: Client, batch: any[]): Promise<void> {
       toInt(row.cited_by_count) ?? 0,
       toInt(row.referenced_works_count) ?? 0,
       row.domain || null,
-      row.field_name || null,        // field_name → field column
+      row.field_name || null, // maps to the "field" column
       row.subfield || null,
       row.primary_topic || null,
       row.topics || null,
@@ -226,7 +226,6 @@ async function main() {
     }
   }
 
-  // flush remainder
   if (worksBatch.length > 0) {
     await insertWorks(client, worksBatch);
     await insertAuthors(client, authorsBatch);

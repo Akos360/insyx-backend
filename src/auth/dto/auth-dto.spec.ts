@@ -6,6 +6,7 @@ import { GoogleAuthDto } from './google-auth.dto';
 import { LoginDto } from './login.dto';
 import { RegisterDto } from './register.dto';
 import { ResetPasswordDto } from './reset-password.dto';
+import { UpdateProfileDto } from './update-profile.dto';
 
 describe('RegisterDto', () => {
   it('accepts a valid email + password', async () => {
@@ -92,6 +93,36 @@ describe('GoogleAuthDto', () => {
 
   it('rejects a missing idToken', async () => {
     const dto = plainToInstance(GoogleAuthDto, {});
+    expect((await validate(dto)).length).toBeGreaterThan(0);
+  });
+});
+
+describe('UpdateProfileDto', () => {
+  it('accepts an empty body (a no-op update)', async () => {
+    const dto = plainToInstance(UpdateProfileDto, {});
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('accepts name + email only', async () => {
+    const dto = plainToInstance(UpdateProfileDto, { name: 'Jane Doe', email: 'jane@example.com' });
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('accepts a password change with both fields present', async () => {
+    const dto = plainToInstance(UpdateProfileDto, {
+      currentPassword: 'old-password',
+      newPassword: 'a-long-enough-password',
+    });
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('rejects a malformed email', async () => {
+    const dto = plainToInstance(UpdateProfileDto, { email: 'not-an-email' });
+    expect((await validate(dto)).length).toBeGreaterThan(0);
+  });
+
+  it('rejects a too-short new password', async () => {
+    const dto = plainToInstance(UpdateProfileDto, { newPassword: 'short' });
     expect((await validate(dto)).length).toBeGreaterThan(0);
   });
 });

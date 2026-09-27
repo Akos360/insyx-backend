@@ -8,16 +8,9 @@ import { AppService } from './app.service';
 import { WorksModule } from './works/works.module';
 import { AuthModule } from './auth/auth.module';
 
-// The Trino lakehouse (WorksModule) remains the source of truth for every
-// bibliometric endpoint. Postgres/TypeORM is registered here for exactly one
-// thing: the `users` table (AuthModule/UsersModule) — an interim store on
-// this repo's own Postgres container (docker-compose.yml), not insyx-database
-// (the lakehouse repo, never touched). `synchronize: true` is deliberate: this
-// app's own Docker image always sets NODE_ENV=production (see
-// force-https.middleware.ts), so the usual `synchronize: NODE_ENV !== 'production'`
-// guard would silently never create the table locally. This is a single-developer
-// thesis project on its own throwaway Postgres — replace with a real migration
-// before any real deployment.
+// Postgres here is only for the `users` table. synchronize:true is deliberate:
+// Docker always sets NODE_ENV=production, so the usual synchronize guard would
+// never create the table. Replace with a migration before real deployment.
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -35,9 +28,7 @@ import { AuthModule } from './auth/auth.module';
         synchronize: true,
       }),
     }),
-    // Generous global default for a public read-only browsing API — tightened
-    // sharply on the auth endpoints specifically (see AuthController's
-    // per-route @Throttle).
+    // Loose global default; auth endpoints throttle tighter via @Throttle in AuthController.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     WorksModule,
     AuthModule,

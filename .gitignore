@@ -44,6 +44,10 @@ lerna-debug.log*
 .env.production.local
 .env.local
 
+# Claude Code agent notes — local working context, not part of the project deliverable
+CLAUDE.md
+CLAUDE.local.md
+
 # temp directory
 .temp
 .tmp

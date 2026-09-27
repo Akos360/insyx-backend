@@ -9,8 +9,7 @@ export class MapQueryDto {
   @Max(22)
   zoom?: number;
 
-  // No min(minLng) < max(maxLng) cross-check — bbox is allowed to wrap the
-  // antimeridian (inBbox() in geo.util.ts handles minLng > maxLng deliberately).
+  // No minLng < maxLng check — bbox may wrap the antimeridian (see inBbox() in geo.util.ts).
   @IsOptional()
   @Type(() => Number)
   @IsNumber()

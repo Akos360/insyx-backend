@@ -20,8 +20,7 @@ export class TrinoService implements OnModuleInit {
       server,
       catalog,
       schema,
-      // trino-client only sends the X-Trino-User header when `auth` is set,
-      // so BasicAuth is required even against a Trino with no authenticator configured.
+      // BasicAuth required even with no Trino authenticator: it's the only way to get the X-Trino-User header sent.
       auth: new BasicAuth(user, password),
     });
     this.logger.log(`Configured Trino connection: ${server}/${catalog}/${schema} as ${user}`);

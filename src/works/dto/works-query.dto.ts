@@ -4,9 +4,7 @@ import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } fro
 const SORT_BY = ['title', 'authors', 'publicationYear', 'field', 'citedByCount'] as const;
 export type WorksSortBy = (typeof SORT_BY)[number];
 
-// class-transformer's @Type(() => Boolean) would coerce ANY non-empty string
-// (including the literal string "false") to `true`, since Boolean('false') is
-// truthy — so booleans need an explicit string-aware transform instead.
+// @Type(() => Boolean) would coerce any non-empty string, including "false", to true.
 function toBoolean({ value }: { value: unknown }): boolean | undefined {
   if (value === undefined) return undefined;
   if (typeof value === 'boolean') return value;

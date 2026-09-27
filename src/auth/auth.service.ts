@@ -8,11 +8,11 @@ import { User } from '../users/user.entity';
 import { UsersService } from '../users/users.service';
 import { ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL } from './auth.constants';
 import { MailerService } from './mailer.service';
-import type { AccessTokenPayload, RefreshTokenPayload } from './auth.types';
+import type { AccessTokenPayload, AuthUserResponse, RefreshTokenPayload } from './auth.types';
+import type { UpdateProfileDto } from './dto/update-profile.dto';
 
 const BCRYPT_ROUNDS = 10;
-// Same message for "unknown email" and "wrong password" so a failed login
-// never reveals whether an account exists.
+// Same message for unknown email and wrong password, so login never reveals whether an account exists.
 const INVALID_CREDENTIALS = 'Invalid email or password';
 const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
 
@@ -50,9 +50,7 @@ export class AuthService {
     return user;
   }
 
-  // Always resolves the same way whether or not the email exists — the
-  // caller (controller) returns one generic response either way, so this
-  // can't be used to enumerate registered accounts.
+  // Resolves the same way whether or not the email exists, to prevent account enumeration.
   async requestPasswordReset(email: string): Promise<void> {
     const user = await this.users.findByEmail(email);
     if (!user) return;
@@ -118,9 +116,7 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  // Stateless refresh — no server-side revocation list. Logging out just
-  // clears cookies; a "log out everywhere" blacklist is a future addition,
-  // not required by the current checklist.
+  // Stateless refresh, no revocation list — logout just clears cookies.
   async refreshAccessToken(refreshToken: string): Promise<string> {
     let payload: RefreshTokenPayload;
     try {
@@ -137,9 +133,40 @@ export class AuthService {
     return this.jwt.signAsync(accessPayload, { expiresIn: ACCESS_TOKEN_TTL });
   }
 
-  async me(userId: string): Promise<{ id: string; email: string }> {
+  async me(userId: string): Promise<AuthUserResponse> {
     const user = await this.users.findById(userId);
     if (!user) throw new UnauthorizedException('Invalid session');
-    return { id: user.id, email: user.email };
+    return toAuthUser(user);
   }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<AuthUserResponse> {
+    const user = await this.users.findById(userId);
+    if (!user) throw new UnauthorizedException('Invalid session');
+
+    if (dto.email && dto.email.toLowerCase() !== user.email) {
+      const existing = await this.users.findByEmail(dto.email);
+      if (existing) throw new ConflictException('Email already registered');
+    }
+
+    if (dto.newPassword) {
+      if (user.passwordHash) {
+        if (!dto.currentPassword) {
+          throw new BadRequestException('Current password is required to set a new password');
+        }
+        const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+        if (!valid) throw new BadRequestException('Current password is incorrect');
+      }
+      const passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
+      await this.users.updatePassword(userId, passwordHash);
+    }
+
+    await this.users.updateProfile(userId, { name: dto.name, email: dto.email, affiliation: dto.affiliation });
+
+    const updated = await this.users.findById(userId);
+    return toAuthUser(updated!);
+  }
+}
+
+function toAuthUser(user: User): AuthUserResponse {
+  return { id: user.id, email: user.email, name: user.name, affiliation: user.affiliation };
 }

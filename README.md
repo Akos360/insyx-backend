@@ -28,8 +28,12 @@ REST API for Insyx — a Science-of-Science Explorer. Built with NestJS and Type
 | GET | `/works/health` | Lakehouse connectivity check |
 | GET | `/works/summary` | Corpus-wide summary stats |
 | GET | `/works` | Paginated, searchable, sortable works list |
-| GET | `/works/:id` | Single work detail |
+| GET | `/works/:id` | Single work detail (type, dates, topics/keywords, license, APC, etc.) |
+| GET | `/works/:id/co-authors` | Co-authors of a given work |
+| GET | `/works/:id/topics` | Scored topic assignments for a given work |
 | GET | `/works/fields` | Distinct field values (for filters) |
+| GET | `/works/domains` | Distinct domain values (for filters) |
+| GET | `/works/export` | CSV export of the current filtered/sorted search (capped at 20k rows) |
 | GET | `/works/stats/by-year` | Papers/citations by year |
 | GET | `/works/stats/by-field` | Papers/citations by field |
 | GET | `/works/stats/scatter` | Year-vs-citations scatter data |
@@ -37,8 +41,7 @@ REST API for Insyx — a Science-of-Science Explorer. Built with NestJS and Type
 | GET | `/works/stats/oa-ratio` | Open-access ratio by year |
 | GET | `/works/authors` | Searchable, paginated author list |
 | GET | `/works/authors/:authorId` | Single author detail + their works |
-| GET | `/works/:id/co-authors` | Co-authors of a given work |
-| GET | `/works/institutions/map` | Zoom/bbox-scoped institution map data (LOD) |
+| GET | `/works/institutions/map` | Zoom/bbox-scoped institution map data (LOD) — currently unused by the frontend, see note below |
 | GET | `/works/institutions/search` | Institution search |
 | GET | `/works/institutions/:id/works` | Works for a given institution |
 
@@ -51,6 +54,7 @@ REST API for Insyx — a Science-of-Science Explorer. Built with NestJS and Type
 | POST | `/auth/logout` | Clear the current session |
 | POST | `/auth/refresh` | Exchange the refresh cookie for a new access token |
 | GET | `/auth/me` | Who the current session belongs to (requires auth) |
+| PATCH | `/auth/me` | Update name/email/affiliation and/or change password (requires auth) |
 | POST | `/auth/forgot-password` | Request a password-reset link |
 | POST | `/auth/reset-password` | Set a new password from a reset link, then auto-login |
 | POST | `/auth/google` | Log in or register via a Google ID token |
@@ -64,6 +68,8 @@ Sessions are stateless JWTs delivered as httpOnly cookies (never readable/settab
 - `refresh_token` — 7 days, path scoped to `/auth/refresh` only
 
 Users live in this repo's **own** Postgres container (the `postgres` service in `docker-compose.yml`) — an interim store, separate from `insyx-database` (the lakehouse), which is never touched. Passwords are hashed with `bcryptjs`. Google sign-in uses Google's Identity Services ID-token flow (`google-auth-library` verifies the token; no client secret is involved). Password-reset links currently just log to the server console (`MailerService`) — no real email provider is wired up yet; that's the one file to replace once one is chosen.
+
+A user record also carries `name` and `affiliation` (both nullable, only ever set via the frontend's Account page — never collected at registration). `PATCH /auth/me` updates any of name/email/affiliation, and optionally changes the password (requires `currentPassword` unless the account has none yet, e.g. a Google-only signup setting its first password).
 
 Required env vars (see `.env.example`): `JWT_SECRET`, `FRONTEND_URL` (used to build reset links), `GOOGLE_CLIENT_ID` (only needed for Google sign-in to actually work — see `.env.example` for how to create one).
 

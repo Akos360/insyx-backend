@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { CookieOptions, Request, Response } from 'express';
@@ -6,16 +6,15 @@ import { isHttps } from '../common/is-https.util';
 import { ACCESS_TOKEN_TTL_MS, REFRESH_TOKEN_TTL_MS } from './auth.constants';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
-import type { AccessTokenPayload } from './auth.types';
+import type { AccessTokenPayload, AuthUserResponse } from './auth.types';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
-// Strict per-route limit — the app's global default (300/60s, see app.module.ts)
-// is generous on purpose for public read-only browsing, but login/register
-// need real bot/brute-force resistance.
+// Tighter than the app's 300/60s global default — login/register need real brute-force resistance.
 const AUTH_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
 
 function cookieOptions(req: Request, maxAgeMs: number, path: string): CookieOptions {
@@ -46,11 +45,11 @@ export class AuthController {
     @Body() dto: RegisterDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ id: string; email: string }> {
+  ): Promise<AuthUserResponse> {
     const user = await this.auth.register(dto.email, dto.password);
     const { accessToken, refreshToken } = await this.auth.issueTokens(user);
     setAuthCookies(req, res, accessToken, refreshToken);
-    return { id: user.id, email: user.email };
+    return { id: user.id, email: user.email, name: user.name, affiliation: user.affiliation };
   }
 
   @Throttle(AUTH_THROTTLE)
@@ -61,11 +60,11 @@ export class AuthController {
     @Body() dto: LoginDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ id: string; email: string }> {
+  ): Promise<AuthUserResponse> {
     const user = await this.auth.validateCredentials(dto.email, dto.password);
     const { accessToken, refreshToken } = await this.auth.issueTokens(user);
     setAuthCookies(req, res, accessToken, refreshToken);
-    return { id: user.id, email: user.email };
+    return { id: user.id, email: user.email, name: user.name, affiliation: user.affiliation };
   }
 
   @Post('logout')
@@ -92,8 +91,19 @@ export class AuthController {
   @UseGuards(AuthGuard)
   @Get('me')
   @ApiOperation({ summary: 'Who the current session belongs to' })
-  me(@Req() req: Request & { user?: AccessTokenPayload }): Promise<{ id: string; email: string }> {
+  me(@Req() req: Request & { user?: AccessTokenPayload }): Promise<AuthUserResponse> {
     return this.auth.me(req.user!.sub);
+  }
+
+  @UseGuards(AuthGuard)
+  @Throttle(AUTH_THROTTLE)
+  @Patch('me')
+  @ApiOperation({ summary: "Update the current user's name, email, and/or password" })
+  updateMe(
+    @Req() req: Request & { user?: AccessTokenPayload },
+    @Body() dto: UpdateProfileDto,
+  ): Promise<AuthUserResponse> {
+    return this.auth.updateProfile(req.user!.sub, dto);
   }
 
   @Throttle(AUTH_THROTTLE)
@@ -102,8 +112,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Request a password-reset link' })
   async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<{ message: string }> {
     await this.auth.requestPasswordReset(dto.email);
-    // Identical response whether or not the email is registered — see
-    // AuthService.requestPasswordReset.
+    // Same response regardless of whether the email is registered — prevents account enumeration.
     return { message: 'If that email is registered, a reset link has been sent.' };
   }
 
@@ -115,11 +124,11 @@ export class AuthController {
     @Body() dto: ResetPasswordDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ id: string; email: string }> {
+  ): Promise<AuthUserResponse> {
     const user = await this.auth.resetPassword(dto.token, dto.newPassword);
     const { accessToken, refreshToken } = await this.auth.issueTokens(user);
     setAuthCookies(req, res, accessToken, refreshToken);
-    return { id: user.id, email: user.email };
+    return { id: user.id, email: user.email, name: user.name, affiliation: user.affiliation };
   }
 
   @Throttle(AUTH_THROTTLE)
@@ -130,10 +139,10 @@ export class AuthController {
     @Body() dto: GoogleAuthDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ id: string; email: string }> {
+  ): Promise<AuthUserResponse> {
     const user = await this.auth.loginWithGoogle(dto.idToken);
     const { accessToken, refreshToken } = await this.auth.issueTokens(user);
     setAuthCookies(req, res, accessToken, refreshToken);
-    return { id: user.id, email: user.email };
+    return { id: user.id, email: user.email, name: user.name, affiliation: user.affiliation };
   }
 }

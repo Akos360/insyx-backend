@@ -1,7 +1,4 @@
-// Country-centroid table and LOD scoring logic for the institution map, used by
-// WorksService.institutionsMap() (the Trino-backed lakehouse version — the earlier
-// Postgres-backed InstitutionsService that originally owned this logic was deleted
-// as a confirmed duplicate; this file is what's left of that split).
+// Centroid table + LOD scoring for the institution map, used by WorksService.institutionsMap().
 
 // ISO 3166-1 alpha-2 → [lat, lng] country centroids
 export const CENTROIDS: Record<string, [number, number]> = {

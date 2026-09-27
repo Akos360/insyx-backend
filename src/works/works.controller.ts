@@ -1,5 +1,6 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, Res } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { WorksService } from './works.service';
 import { WorksQueryDto } from './dto/works-query.dto';
 import { ChartFilterDto, ScatterQueryDto } from './dto/chart-filter.dto';
@@ -24,7 +25,6 @@ export class WorksController {
     return this.works.summary();
   }
 
-  // GET /works?search=neural&year=2022&domain=Biology&is_oa=true&limit=50&offset=50&sortBy=citedByCount&sortDir=desc
   @Get()
   @ApiOperation({ summary: 'List works from the lakehouse, searched/filtered/paginated' })
   findAll(@Query() q: WorksQueryDto) {
@@ -47,6 +47,32 @@ export class WorksController {
   @ApiOperation({ summary: 'Distinct field values, for populating a filter dropdown' })
   fields() {
     return this.works.fields();
+  }
+
+  @Get('domains')
+  @ApiOperation({ summary: 'Distinct domain values, for populating a filter dropdown' })
+  domains() {
+    return this.works.domains();
+  }
+
+  // Must come before the generic :id route below, or Nest matches "export" as a work id.
+  @Get('export')
+  @ApiOperation({ summary: 'Export the current filtered/sorted search as CSV' })
+  async exportCsv(@Query() q: WorksQueryDto, @Res() res: Response) {
+    const csv = await this.works.exportCsv({
+      search: q.search,
+      year: q.year,
+      yearFrom: q.yearFrom,
+      yearTo: q.yearTo,
+      domain: q.domain,
+      field: q.field,
+      is_oa: q.is_oa,
+      sortBy: q.sortBy,
+      sortDir: q.sortDir,
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="insyx-works-export.csv"');
+    res.send(csv);
   }
 
   @Get('stats/by-year')
@@ -74,10 +100,7 @@ export class WorksController {
     return this.works.oaRatioByYear(q);
   }
 
-  // ── authors ──────────────────────────────────────────────────────────
-  // Declared before the generic `:id` route below — same-depth static paths
-  // must come first or Nest would try to match "authors" as a work id.
-
+  // Must come before the generic :id route below, or Nest matches "authors" as a work id.
   @Get('authors')
   @ApiOperation({ summary: 'Search/list authors from the lakehouse, paginated' })
   searchAuthors(@Query() q: AuthorsQueryDto) {
@@ -94,8 +117,6 @@ export class WorksController {
   authorDetail(@Param('authorId') authorId: string) {
     return this.works.authorDetail(authorId);
   }
-
-  // ── institutions ─────────────────────────────────────────────────────
 
   @Get('institutions/map')
   @ApiOperation({ summary: 'LOD-scored institution map features for the globe' })
@@ -122,6 +143,11 @@ export class WorksController {
   @Get(':id/co-authors')
   coAuthors(@Param('id') id: string) {
     return this.works.coAuthors(id);
+  }
+
+  @Get(':id/topics')
+  workTopics(@Param('id') id: string) {
+    return this.works.workTopics(id);
   }
 
   @Get(':id')

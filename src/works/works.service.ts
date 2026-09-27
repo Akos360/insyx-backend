@@ -43,16 +43,24 @@ export interface WorkDetail {
   title: string;
   abstract: string | null;
   publication_year: number;
+  publication_date: string | null;
+  type: string | null;
+  language: string | null;
   domain: string | null;
   field: string | null;
   subfield: string | null;
   primary_topic: string | null;
   keywords: string | null;
   cited_by_count: number;
+  referenced_works_count: number | null;
   is_oa: boolean;
   oa_url: string | null;
   pdf_url: string | null;
+  license: string | null;
   source_name: string | null;
+  source_type: string | null;
+  num_authors: number | null;
+  apc_usd: number | null;
   authors: string | null;
 }
 
@@ -75,6 +83,13 @@ export interface YearStat {
 
 function sqlString(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
+}
+
+const EXPORT_ROW_CAP = 20_000;
+
+function csvCell(value: string | number | null | undefined): string {
+  const str = value === null || value === undefined ? '' : String(value);
+  return /["\r\n,]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 }
 
 function boundedLimit(value: number | undefined, fallback = 20, max = 200): number {
@@ -167,8 +182,7 @@ export class WorksService {
     const sortDir = filters.sortDir === 'asc' ? 'ASC' : 'DESC';
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    // Sequential, not Promise.all: the shared TrinoService client cannot safely
-    // run two overlapping queries at once (concurrent calls silently return empty rows).
+    // Sequential, not Promise.all: concurrent queries on the shared TrinoService silently return empty rows.
     const items = await this.trino.query<Work>(`
       SELECT
         id,
@@ -203,18 +217,70 @@ export class WorksService {
     return rows.map((r) => r.field);
   }
 
+  async domains(): Promise<string[]> {
+    const rows = await this.trino.query<{ domain: string }>(`
+      SELECT DISTINCT domain
+      FROM ${LAKEHOUSE}.works
+      WHERE domain IS NOT NULL
+      ORDER BY domain
+      LIMIT 200
+    `);
+    return rows.map((r) => r.domain);
+  }
+
+  // Capped well under the lakehouse's full size — a CSV export is a one-shot in-memory
+  // build (no streaming), and nobody needs more than this many rows in a spreadsheet.
+  async exportCsv(filters: WorkFilters = {}): Promise<string> {
+    const conditions = buildWorkConditions(filters);
+    const sortColumn = SORTABLE_COLUMNS[filters.sortBy ?? 'citedByCount'] ?? 'cited_by_count';
+    const sortDir = filters.sortDir === 'asc' ? 'ASC' : 'DESC';
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const rows = await this.trino.query<{
+      title: string;
+      authors: string;
+      publication_year: number;
+      domain: string | null;
+      field: string | null;
+      cited_by_count: number;
+      is_oa: boolean;
+      source_name: string | null;
+    }>(`
+      SELECT title, authors, publication_year, domain, field, cited_by_count, is_oa, source_name
+      FROM ${LAKEHOUSE}.works
+      ${where}
+      ORDER BY ${sortColumn} ${sortDir}
+      LIMIT ${EXPORT_ROW_CAP}
+    `);
+
+    const header = ['Title', 'Authors', 'Year', 'Domain', 'Field', 'Citations', 'Open Access', 'Source'];
+    const lines = rows.map((r) =>
+      [
+        csvCell(r.title),
+        csvCell(r.authors),
+        csvCell(r.publication_year),
+        csvCell(r.domain),
+        csvCell(r.field),
+        csvCell(r.cited_by_count),
+        r.is_oa ? 'Yes' : 'No',
+        csvCell(r.source_name),
+      ].join(','),
+    );
+    return [header.join(','), ...lines].join('\r\n');
+  }
+
   async findOne(id: string): Promise<WorkDetail | null> {
-    // Explicit column list, not SELECT * — the lakehouse `works` table also carries
-    // large JSONB-as-string blobs (concepts_full, keywords_full, references_full,
-    // related_full, full_authors_info) that no frontend consumer of this endpoint
-    // (PaperPage, GlobePanel's WorkView) ever reads.
+    // Explicit columns, not SELECT *: the table also has large JSONB blob columns no frontend consumer reads.
     const rows = await this.trino.query<WorkDetail>(`
       SELECT
-        id, doi, title, abstract, publication_year, domain, field, subfield,
-        primary_topic, keywords, cited_by_count, is_oa, oa_url, pdf_url,
-        source_name, authors
-      FROM ${LAKEHOUSE}.works
-      WHERE id = ${sqlString(id)}
+        w.id, w.doi, w.title, w.abstract, w.publication_year, w.publication_date,
+        w.type, w.language, w.domain, w.field, w.subfield,
+        w.primary_topic, w.keywords, w.cited_by_count, w.referenced_works_count,
+        w.is_oa, w.oa_url, w.pdf_url, d.license, w.source_name, w.source_type,
+        w.num_authors, w.apc_usd, w.authors
+      FROM ${LAKEHOUSE}.works w
+      LEFT JOIN ${LAKEHOUSE}.documents d ON d.work_id = w.id
+      WHERE w.id = ${sqlString(id)}
       LIMIT 1
     `);
     return rows[0] ?? null;
@@ -305,6 +371,15 @@ export class WorksService {
     `);
   }
 
+  async workTopics(workId: string) {
+    return this.trino.query<{ topic_id: string; display_name: string; score: number }>(`
+      SELECT topic_id, display_name, score
+      FROM ${LAKEHOUSE}.work_topics
+      WHERE work_id = ${sqlString(workId)}
+      ORDER BY score DESC
+    `);
+  }
+
   async coAuthors(workId: string) {
     return this.trino.query(`
       SELECT
@@ -318,8 +393,6 @@ export class WorksService {
     `);
   }
 
-
-  // ── authors ────────────────────────────────────────────────────────────
 
   async searchAuthors(params: {
     search?: string;
@@ -402,8 +475,6 @@ export class WorksService {
       })),
     };
   }
-
-  // ── institutions ───────────────────────────────────────────────────────
 
   async institutionsMap(query: MapQuery) {
     const rows = await this.trino.query<{

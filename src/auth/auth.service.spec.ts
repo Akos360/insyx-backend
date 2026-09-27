@@ -17,6 +17,8 @@ function makeUser(overrides: Partial<User> = {}): User {
   return {
     id: 'user-1',
     email: 'person@example.com',
+    name: null,
+    affiliation: null,
     passwordHash: '',
     googleId: null,
     resetTokenHash: null,
@@ -39,6 +41,7 @@ describe('AuthService', () => {
     findByResetTokenHash: jest.Mock;
     clearResetToken: jest.Mock;
     updatePassword: jest.Mock;
+    updateProfile: jest.Mock;
   };
   let jwt: { signAsync: jest.Mock; verifyAsync: jest.Mock };
   let mailer: { sendPasswordResetEmail: jest.Mock };
@@ -58,6 +61,7 @@ describe('AuthService', () => {
       findByResetTokenHash: jest.fn(),
       clearResetToken: jest.fn(),
       updatePassword: jest.fn(),
+      updateProfile: jest.fn(),
     };
     jwt = { signAsync: jest.fn(async () => 'signed-token'), verifyAsync: jest.fn() };
     mailer = { sendPasswordResetEmail: jest.fn() };
@@ -73,8 +77,7 @@ describe('AuthService', () => {
   describe('register', () => {
     it('hashes the password and creates the user when the email is new', async () => {
       users.findByEmail.mockResolvedValue(null);
-      // Real UsersService.create lower-cases the email itself; mirror that
-      // here since AuthService delegates normalization to it entirely.
+      // Mirrors real UsersService.create, which lower-cases the email itself.
       users.create.mockImplementation(async (email: string, passwordHash: string) =>
         makeUser({ email: email.toLowerCase(), passwordHash }),
       );
@@ -184,7 +187,7 @@ describe('AuthService', () => {
   describe('me', () => {
     it('returns id/email for a known user', async () => {
       users.findById.mockResolvedValue(makeUser());
-      await expect(service.me('user-1')).resolves.toEqual({ id: 'user-1', email: 'person@example.com' });
+      await expect(service.me('user-1')).resolves.toEqual({ id: 'user-1', email: 'person@example.com', name: null, affiliation: null });
     });
 
     it('rejects an unknown user id', async () => {
@@ -308,6 +311,89 @@ describe('AuthService', () => {
       mockVerifyIdToken.mockRejectedValue(new Error('invalid signature'));
 
       await expect(service.loginWithGoogle('garbage')).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+  });
+
+  describe('updateProfile', () => {
+    it('updates name and email when the new email is free', async () => {
+      users.findById
+        .mockResolvedValueOnce(makeUser({ email: 'old@example.com' }))
+        .mockResolvedValueOnce(makeUser({ email: 'new@example.com', name: 'New Name' }));
+      users.findByEmail.mockResolvedValue(null);
+
+      const result = await service.updateProfile('user-1', { name: 'New Name', email: 'new@example.com' });
+
+      expect(users.updateProfile).toHaveBeenCalledWith('user-1', {
+        name: 'New Name',
+        email: 'new@example.com',
+      });
+      expect(result).toEqual({ id: 'user-1', email: 'new@example.com', name: 'New Name', affiliation: null });
+    });
+
+    it('rejects changing to an email already used by another account', async () => {
+      users.findById.mockResolvedValue(makeUser({ email: 'old@example.com' }));
+      users.findByEmail.mockResolvedValue(makeUser({ id: 'someone-else', email: 'taken@example.com' }));
+
+      await expect(
+        service.updateProfile('user-1', { email: 'taken@example.com' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(users.updateProfile).not.toHaveBeenCalled();
+    });
+
+    it('allows keeping the same email unchanged without a uniqueness check', async () => {
+      users.findById.mockResolvedValue(makeUser({ email: 'same@example.com' }));
+
+      await service.updateProfile('user-1', { name: 'New Name', email: 'same@example.com' });
+
+      expect(users.findByEmail).not.toHaveBeenCalled();
+    });
+
+    it('changes the password when the current password is correct', async () => {
+      const passwordHash = await bcrypt.hash('old-password-123', 4);
+      users.findById.mockResolvedValue(makeUser({ passwordHash }));
+
+      await service.updateProfile('user-1', {
+        currentPassword: 'old-password-123',
+        newPassword: 'a-new-long-password',
+      });
+
+      expect(users.updatePassword).toHaveBeenCalledWith('user-1', expect.any(String));
+      const [, newHash] = users.updatePassword.mock.calls[0];
+      expect(await bcrypt.compare('a-new-long-password', newHash)).toBe(true);
+    });
+
+    it('rejects a password change with a missing current password', async () => {
+      const passwordHash = await bcrypt.hash('old-password-123', 4);
+      users.findById.mockResolvedValue(makeUser({ passwordHash }));
+
+      await expect(
+        service.updateProfile('user-1', { newPassword: 'a-new-long-password' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(users.updatePassword).not.toHaveBeenCalled();
+    });
+
+    it('rejects a password change with a wrong current password', async () => {
+      const passwordHash = await bcrypt.hash('old-password-123', 4);
+      users.findById.mockResolvedValue(makeUser({ passwordHash }));
+
+      await expect(
+        service.updateProfile('user-1', { currentPassword: 'wrong', newPassword: 'a-new-long-password' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(users.updatePassword).not.toHaveBeenCalled();
+    });
+
+    it('allows a Google-only account (no existing password) to set its first password without a current password', async () => {
+      users.findById.mockResolvedValue(makeUser({ passwordHash: null, googleId: 'google-sub-1' }));
+
+      await service.updateProfile('user-1', { newPassword: 'a-new-long-password' });
+
+      expect(users.updatePassword).toHaveBeenCalledWith('user-1', expect.any(String));
+    });
+
+    it('rejects an unknown user id', async () => {
+      users.findById.mockResolvedValue(null);
+
+      await expect(service.updateProfile('ghost', { name: 'X' })).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 });

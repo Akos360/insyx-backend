@@ -51,4 +51,14 @@ export class UsersService {
   async updatePassword(userId: string, passwordHash: string): Promise<void> {
     await this.users.update({ id: userId }, { passwordHash });
   }
+
+  async updateProfile(userId: string, updates: { name?: string; email?: string; affiliation?: string }): Promise<void> {
+    const patch: Partial<Pick<User, 'name' | 'email' | 'affiliation'>> = {};
+    if (updates.name !== undefined) patch.name = updates.name;
+    if (updates.affiliation !== undefined) patch.affiliation = updates.affiliation;
+    if (updates.email !== undefined) patch.email = updates.email.toLowerCase();
+    if (Object.keys(patch).length === 0) return;
+
+    await this.users.update({ id: userId }, patch);
+  }
 }

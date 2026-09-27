@@ -9,16 +9,12 @@ import { forceHttps } from "./common/force-https.middleware";
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Before everything else: redirect http → https, but only when a reverse
-  // proxy actually proves an https alternative exists (see the middleware's
-  // own comment for why this isn't just a NODE_ENV check).
   app.use(forceHttps);
 
   // Needed to read the httpOnly access/refresh cookies AuthController sets.
   app.use(cookieParser());
 
-  // Swagger UI (served by this app at /api) renders inline scripts/styles —
-  // relaxing just those two CSP directives rather than disabling CSP entirely.
+  // Swagger UI needs inline scripts/styles, so only those two CSP directives are relaxed.
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -31,10 +27,8 @@ async function bootstrap() {
     }),
   );
 
-  // No `enableImplicitConversion` — every DTO field already has an explicit
-  // @Type()/@Transform() decorator, and implicit conversion overrides custom
-  // @Transform logic with class-transformer's own naive Boolean(value) cast,
-  // where Boolean("false") is true (any non-empty string is truthy).
+  // No enableImplicitConversion: it overrides DTOs' explicit @Transform decorators
+  // with class-transformer's naive Boolean(value), where Boolean("false") is true.
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
