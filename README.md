@@ -1,11 +1,11 @@
 # Insyx Backend
 
-REST API for Insyx — a Science-of-Science Explorer. Built with NestJS and TypeScript. All bibliometric data is served from a Trino/Iceberg lakehouse (`insyx-database`, a separate repo maintained by a groupmate — never edited from here); this repo's own PostgreSQL is used only for the interim `users` table backing authentication.
+REST API for Insyx — a Science-of-Science Explorer. Built with NestJS and TypeScript. All bibliometric data is served from a Trino/Iceberg lakehouse (`insyx-database`, a separate repository); PostgreSQL stores application accounts used by authentication and user profile APIs.
 
 ## Technology Stack
 - `NestJS` + `TypeScript` — structured backend framework, static typing
 - `trino-client` — queries the `insyx-database` lakehouse (Iceberg tables) for all bibliometric data
-- `TypeORM` + `PostgreSQL` — interim `users` table only, this repo's own Postgres container (not the lakehouse)
+- `TypeORM` + `PostgreSQL` — application accounts only, this repo's own Postgres container (not the lakehouse)
 - `@nestjs/jwt` + httpOnly cookies — auth sessions; `bcryptjs` — password hashing; `google-auth-library` — Sign in with Google
 - `helmet` — security headers; `@nestjs/throttler` — rate limiting
 - `Swagger` — auto-generated API docs at `/api`
@@ -61,13 +61,57 @@ REST API for Insyx — a Science-of-Science Explorer. Built with NestJS and Type
 
 Interactive docs available at `http://localhost:3000/api` when the server is running.
 
+### User profiles
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/users/me` | Current user's profile, without credentials or Google identifiers |
+| PATCH | `/users/me` | Update name, email, affiliation, or avatar URL |
+| DELETE | `/users/me` | Delete the current account and clear session cookies (204) |
+
+All user profile routes require the existing access-token cookie and operate only
+on that session's account. Account creation remains at `/auth/register` or
+`/auth/google`; `/auth/me` and its existing response shape remain supported.
+There is no public account directory or arbitrary-user editing endpoint.
+`PATCH /users/me` accepts `name`, `email`, `affiliation`, and `avatarUrl`.
+Avatar URLs must use HTTP(S); `null` clears the avatar. Email changes reset
+`emailVerified`. Password changes remain at `/auth/me`. The application whitelist
+strips credential, provider identity, verification, and other unknown fields.
+
+### Account database migrations
+
+Startup runs explicit TypeORM migrations with `synchronize: false`. Fresh installs
+create the full schema; existing accounts from either the previous feature schema
+or the pulled main branch are upgraded without recreating the users table.
+The compatibility migration renames the earlier snake_case fields to the names
+used by the current authentication code, adds missing fields, and preserves UUIDs,
+password hashes, Google IDs, and password-reset tokens. Nullable names preserve
+registration without a display name. Ambiguous column pairs or conflicting
+normalized emails abort migration instead of silently discarding or merging accounts.
+The compatibility migration has no automatic downgrade; restore a database backup
+if a rollback is required.
+
+The matching SQL lives in `insyx-database/conf/postgres/migrations/`. Both repositories
+must use the same schema. The backend still uses its own PostgreSQL on port 5433 by
+default; creating `insyx` in the database stack does not automatically move accounts.
+To share that PostgreSQL instance, explicitly set `DB_HOST`, `DB_PORT`, `DB_USER`,
+`DB_PASSWORD`, and `DB_NAME=insyx` to that instance. No account data is copied between
+instances by these migrations.
+
+Google sign-in already exists in the pulled main branch and is preserved. This
+branch adds compatible storage and profile APIs rather than a second sign-in flow.
+`emailVerified` starts false for pre-existing accounts whose verification status is
+unknown, and true for newly verified Google registrations or links. `lastLoginAt`
+is nullable and reserved for future login auditing.
+
+
 ## Authentication
 
 Sessions are stateless JWTs delivered as httpOnly cookies (never readable/settable from frontend JS, which mitigates XSS token theft):
 - `access_token` — 15 minutes, path `/`
 - `refresh_token` — 7 days, path scoped to `/auth/refresh` only
 
-Users live in this repo's **own** Postgres container (the `postgres` service in `docker-compose.yml`) — an interim store, separate from `insyx-database` (the lakehouse), which is never touched. Passwords are hashed with `bcryptjs`. Google sign-in uses Google's Identity Services ID-token flow (`google-auth-library` verifies the token; no client secret is involved). Password-reset links currently just log to the server console (`MailerService`) — no real email provider is wired up yet; that's the one file to replace once one is chosen.
+Users live in this repo's **own** Postgres container (the `postgres` service in `docker-compose.yml`) — separate from the Trino/Iceberg scientific data. Passwords are hashed with `bcryptjs`. Google sign-in uses Google's Identity Services ID-token flow (`google-auth-library` verifies the token; no client secret is involved). Password-reset links currently just log to the server console (`MailerService`) — no real email provider is wired up yet; that's the one file to replace once one is chosen.
 
 A user record also carries `name` and `affiliation` (both nullable, only ever set via the frontend's Account page — never collected at registration). `PATCH /auth/me` updates any of name/email/affiliation, and optionally changes the password (requires `currentPassword` unless the account has none yet, e.g. a Google-only signup setting its first password).
 
@@ -95,7 +139,7 @@ insyx-backend/
 │   │   ├── auth.guard.ts
 │   │   ├── mailer.service.ts   # interim: logs reset links to the console, swap for a real provider later
 │   │   └── dto/
-│   ├── users/                  # interim `users` table — this repo's own Postgres, not the lakehouse
+│   ├── users/                  # application accounts and current-user profile APIs
 │   │   ├── user.entity.ts
 │   │   └── users.service.ts
 │   ├── works/                  # every bibliometric endpoint, backed by the Trino lakehouse

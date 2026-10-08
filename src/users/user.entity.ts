@@ -1,13 +1,12 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
-/** Interim user store on this repo's own Postgres, not insyx-database — superseded once the lakehouse gets real users. */
-@Entity('users')
+/** Application account store shared by authentication and profile APIs. */
+@Entity({ name: 'users', schema: 'public', synchronize: false })
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Always lower-cased in UsersService before insert/lookup — Postgres has no case-insensitive unique constraint.
-  @Column({ unique: true })
+  @Column({ type: 'varchar', length: 254, unique: true })
   email: string;
 
   // Not collected at registration — only ever set via the Settings page.
@@ -16,6 +15,15 @@ export class User {
 
   @Column({ type: 'varchar', nullable: true })
   affiliation: string | null;
+
+  @Column({ type: 'varchar', length: 2048, nullable: true })
+  avatarUrl: string | null;
+
+  @Column({ default: false })
+  emailVerified: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  lastLoginAt: Date | null;
 
   // Null for Google-only accounts — login() must reject this explicitly, not call bcrypt.compare(null).
   @Column({ type: 'varchar', nullable: true })
@@ -32,9 +40,9 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   resetTokenExpiresAt: Date | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 }

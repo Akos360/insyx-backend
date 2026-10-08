@@ -7,10 +7,11 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { WorksModule } from './works/works.module';
 import { AuthModule } from './auth/auth.module';
+import { User } from './users/user.entity';
+import { CreateUsers1791450000000 } from './migrations/1791450000000-CreateUsers';
+import { AlignUsers1791450000001 } from './migrations/1791450000001-AlignUsers';
 
-// Postgres here is only for the `users` table. synchronize:true is deliberate:
-// Docker always sets NODE_ENV=production, so the usual synchronize guard would
-// never create the table. Replace with a migration before real deployment.
+// Application accounts stay in PostgreSQL; bibliometric data stays in Trino.
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -24,8 +25,10 @@ import { AuthModule } from './auth/auth.module';
         password: config.get<string>('DB_PASSWORD', 'insyx'),
         database: config.get<string>('DB_NAME', 'insyx'),
         ssl: config.get<string>('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: true,
+        entities: [User],
+        migrations: [CreateUsers1791450000000, AlignUsers1791450000001],
+        migrationsRun: true,
+        synchronize: false,
       }),
     }),
     // Loose global default; auth endpoints throttle tighter via @Throttle in AuthController.
