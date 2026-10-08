@@ -5,7 +5,7 @@ REST API for Insyx — a Science-of-Science Explorer. Built with NestJS and Type
 ## Technology Stack
 - `NestJS` + `TypeScript` — structured backend framework, static typing
 - `trino-client` — queries the `insyx-database` lakehouse (Iceberg tables) for all bibliometric data
-- `TypeORM` + `PostgreSQL` — application accounts only, this repo's own Postgres container (not the lakehouse)
+- `TypeORM` + `PostgreSQL` — application accounts only, stored in `insyx-database`'s own Postgres (a separate `insyx` database there, not the Iceberg/Trino side)
 - `@nestjs/jwt` + httpOnly cookies — auth sessions; `bcryptjs` — password hashing; `google-auth-library` — Sign in with Google
 - `helmet` — security headers; `@nestjs/throttler` — rate limiting
 - `Swagger` — auto-generated API docs at `/api`
@@ -43,8 +43,12 @@ REST API for Insyx — a Science-of-Science Explorer. Built with NestJS and Type
 | GET | `/works/authors` | Searchable, paginated author list |
 | GET | `/works/authors/:authorId` | Single author detail + their works |
 | GET | `/works/institutions/map` | Zoom/bbox-scoped GeoJSON using stored institution coordinates |
-| GET | `/works/institutions/search` | Institution search |
+| GET | `/works/institutions` | Searchable, paginated, sortable institution list (name/worksCount/citedByCount) |
+| GET | `/works/institutions/search` | Flat institution search (used by the globe explorer panel) |
+| GET | `/works/institutions/by-country` | Total work count per country (ISO alpha-2), for a choropleth map |
+| GET | `/works/institutions/:id` | Single institution detail (type, homepage, ROR, coordinates, totals) |
 | GET | `/works/institutions/:id/works` | Works for a given institution |
+| GET | `/works/institutions/:id/authors` | Authors affiliated with a given institution |
 
 Work detail includes an `institutions` array with `id`, `name`, `country_code`,
 `latitude`, and `longitude`. A work can belong to multiple institutions through
@@ -54,6 +58,14 @@ Institution search also returns `latitude` and `longitude`. Map geometry uses
 with missing or invalid locations. Apply the updated lakehouse schema before
 running this backend. The database importer supports `--institutions-json` to
 supply coordinates missing from flattened work exports; see the database README.
+
+`/works/institutions/map`'s GeoJSON properties carry `workCount`, `authorCount`,
+`citationCount`, and `citationsPerWork` (citations ÷ works, the bibliometric
+impact measure) separately, alongside a combined `score` — the frontend encodes
+each metric independently (bar footprint/height/color) rather than relying on
+one blended number. The zoom → max-markers LOD cutoff (`maxCount` in
+`common/geo.util.ts`) is a smooth exponential in zoom, not a hand-picked step
+function, matching how map zoom itself is already a log2 scale of resolution.
 
 ### Auth
 
@@ -101,12 +113,18 @@ normalized emails abort migration instead of silently discarding or merging acco
 The compatibility migration has no automatic downgrade; restore a database backup
 if a rollback is required.
 
-The matching SQL lives in `insyx-database/conf/postgres/migrations/`. Both repositories
-must use the same schema. The backend still uses its own PostgreSQL on port 5433 by
-default; creating `insyx` in the database stack does not automatically move accounts.
-To share that PostgreSQL instance, explicitly set `DB_HOST`, `DB_PORT`, `DB_USER`,
-`DB_PASSWORD`, and `DB_NAME=insyx` to that instance. No account data is copied between
-instances by these migrations.
+The matching SQL lives in `insyx-database/conf/postgres/migrations/` — the same two
+migrations, as plain SQL, applied directly to that repo's Postgres (`001_users.sql` then
+`002_users_auth_compat.sql`, against a database named `insyx`). Accounts now live there
+rather than in a Postgres container of this repo's own: `docker-compose.yml` points
+`DB_HOST`/`DB_PORT` at `host.docker.internal:5432` (Docker Desktop's alias for the host,
+since that Postgres runs in insyx-database's own, separate docker-compose project) using
+that instance's own admin credentials, not this repo's `DB_USER`/`DB_PASSWORD`. Those two
+SQL files only run automatically via Postgres's init-script mechanism on a brand-new, empty
+data volume — on an existing one (e.g. this project's dev environment), apply them manually
+once: `docker exec postgres psql -U <user> -d postgres -c "CREATE DATABASE insyx"`, then
+`docker exec -i postgres psql -U <user> -d insyx < conf/postgres/migrations/001_users.sql`
+and the same for `002_users_auth_compat.sql`.
 
 Google sign-in already exists in the pulled main branch and is preserved. This
 branch adds compatible storage and profile APIs rather than a second sign-in flow.
@@ -121,7 +139,7 @@ Sessions are stateless JWTs delivered as httpOnly cookies (never readable/settab
 - `access_token` — 15 minutes, path `/`
 - `refresh_token` — 7 days, path scoped to `/auth/refresh` only
 
-Users live in this repo's **own** Postgres container (the `postgres` service in `docker-compose.yml`) — separate from the Trino/Iceberg scientific data. Passwords are hashed with `bcryptjs`. Google sign-in uses Google's Identity Services ID-token flow (`google-auth-library` verifies the token; no client secret is involved). Password-reset links currently just log to the server console (`MailerService`) — no real email provider is wired up yet; that's the one file to replace once one is chosen.
+Users live in `insyx-database`'s own Postgres (a dedicated `insyx` database there — see [Account database migrations](#account-database-migrations) — reached over `host.docker.internal` from this repo's container), not a Postgres of this repo's own, and separate from the Trino/Iceberg scientific data. Passwords are hashed with `bcryptjs`. Google sign-in uses Google's Identity Services ID-token flow (`google-auth-library` verifies the token; no client secret is involved). Password-reset links currently just log to the server console (`MailerService`) — no real email provider is wired up yet; that's the one file to replace once one is chosen.
 
 A user record also carries `name` and `affiliation` (both nullable, only ever set via the frontend's Account page — never collected at registration). `PATCH /auth/me` updates any of name/email/affiliation, and optionally changes the password (requires `currentPassword` unless the account has none yet, e.g. a Google-only signup setting its first password).
 
@@ -151,15 +169,18 @@ insyx-backend/
 │   │   └── dto/
 │   ├── users/                  # application accounts and current-user profile APIs
 │   │   ├── user.entity.ts
-│   │   └── users.service.ts
+│   │   ├── users.service.ts
+│   │   ├── users.controller.ts # GET/PATCH/DELETE /users/me
+│   │   ├── users.module.ts
+│   │   └── dto/
 │   ├── works/                  # every bibliometric endpoint, backed by the Trino lakehouse
 │   │   ├── works.controller.ts
 │   │   ├── works.service.ts
 │   │   └── dto/
 │   ├── database/
 │   │   └── trino.service.ts
-│   ├── common/                  # force-https middleware, geo/LOD helpers, https-detection util
-│   └── import-data.ts           # bulk OpenAlex JSON import into this repo's own Postgres
+│   ├── migrations/              # explicit TypeORM migrations for the users table (see Account database migrations)
+│   └── common/                  # force-https middleware, geo/LOD helpers, https-detection util
 ├── test/
 ├── Dockerfile
 ├── docker-compose.yml
@@ -177,17 +198,29 @@ make init-schema
 py -3.12 scripts/seed.py --works 500 --batch-size 250
 ```
 
+Then, once (or after a fresh `insyx-database` Postgres volume — see
+[Account database migrations](#account-database-migrations) for why this isn't automatic),
+create the accounts database there and apply the two users migrations:
+
+```bash
+docker exec postgres psql -U <user> -d postgres -c "CREATE DATABASE insyx"
+docker exec -i postgres psql -U <user> -d insyx < conf/postgres/migrations/001_users.sql
+docker exec -i postgres psql -U <user> -d insyx < conf/postgres/migrations/002_users_auth_compat.sql
+```
+
 From this repo's root:
 
 ```bash
 docker compose up --build
 ```
 
-This starts `insyx-backend` on `http://localhost:3000` and its own PostgreSQL (used only for the `users` table), and connects to Trino on the host via `http://host.docker.internal:8080`.
+This starts `insyx-backend` on `http://localhost:3000`, connecting to `insyx-database`'s
+Postgres over `http://host.docker.internal:5432` for accounts and its Trino over
+`http://host.docker.internal:8080` for bibliometric data. There's no Postgres container
+in this repo's own `docker-compose.yml` anymore.
 - Backend: `http://localhost:3000`
-- PostgreSQL: `localhost:5433` (host-published port; moved off 5432, see `DB_HOST_PORT` in `.env.example`)
 
-Rebuild backend only (DB data persists in the `postgres_data` volume and is not affected):
+Rebuild backend only:
 
 ```bash
 docker compose up --build backend
@@ -210,24 +243,11 @@ Copy `.env.example` to `.env` first and fill in real values — at minimum `JWT_
 
 ## Data Utilities
 
-### `src/import-data.ts` — bulk data import
+Two standalone, Postgres-backed data-loading scripts previously lived in this repo (`src/import-data.ts`, plus `seed-sample-data.ts` + two TypeORM entity files) for the Papers/Authors/Institutions stack this app used before it moved entirely onto the Trino lakehouse (`WorksModule`). Neither is used by the running app anymore, so both have been moved to a sibling `data-sample/` folder outside `insyx-backend/` entirely (not part of any git repo) — kept around in case either dataset is wanted again for local inspection, not meant to be re-integrated into this repo without being asked:
+- `import-data.ts` — bulk-imports the real 100k-record OpenAlex export (`ai_subfield_100k_all_columns.json`, also moved there)
+- `seed-sample-data.ts` — ~46 hand-picked, hardcoded real papers (not derived from the JSON export)
 
-Imports a large OpenAlex JSON export into this repo's own PostgreSQL. Built for the 100k-record AI subfield dataset (`data/ai_subfield_100k_all_columns.json`) but compatible with any export following the same schema. Not used by the running app (which reads exclusively from the Trino lakehouse via `WorksModule`) — kept for whenever that dataset is wanted again for local inspection.
-
-What it does:
-- Truncates `authors`, then `works` tables
-- Reads and parses the full JSON file into memory
-- Inserts works in batches of 500 using raw `pg` queries for performance
-- Parses the `full_authors_info` field (semicolon-separated format) to populate the `authors` table
-- Handles type coercions: string numerics → integers/floats, `"Yes"/"No"` → boolean, plain-text JSONB fields → valid JSON strings
-
-```bash
-npx ts-node src/import-data.ts
-```
-
-The JSON file is expected at `../data/ai_subfield_100k_all_columns.json` relative to the backend root. Columns not mapped to the DB schema (`funders`, `grants`, `source_host_name`, `source_issn`, `cited_by_count_int`, `embedding`) are silently skipped.
-
-> A hand-written sample-data seed script (`seed-sample-data.ts` + two TypeORM entity files) previously lived in this repo under `data-sample/`. It's since been moved to a sibling folder outside `insyx-backend/` entirely, since nothing in the running app used it — the whole Postgres-backed Papers/Authors/Institutions stack it supported was removed as a confirmed duplicate of the Trino-lakehouse-backed `WorksModule`.
+Both scripts read `DB_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD`/`DB_NAME` the same way the main app does, which now point at `insyx-database`'s shared Postgres (the `insyx` database holding accounts) — point either at a separate local Postgres via env var overrides before running it, rather than against that shared instance.
 
 ## Tests
 

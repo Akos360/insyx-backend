@@ -5,6 +5,7 @@ import { WorksService } from './works.service';
 import { WorksQueryDto } from './dto/works-query.dto';
 import { ChartFilterDto, ScatterQueryDto } from './dto/chart-filter.dto';
 import { AuthorsQueryDto } from './dto/authors-query.dto';
+import { InstitutionsQueryDto } from './dto/institutions-query.dto';
 import { MapQueryDto } from './dto/map-query.dto';
 import { SearchQueryDto } from './dto/search-query.dto';
 
@@ -135,9 +136,42 @@ export class WorksController {
     return this.works.searchInstitutions(q.q ?? '');
   }
 
+  @Get('institutions/by-country')
+  @ApiOperation({ summary: 'Total work count per country, for the 2D choropleth map' })
+  institutionsByCountry() {
+    return this.works.institutionsByCountry();
+  }
+
+  // Must come before the generic institutions/:id route below, or Nest matches "institutions" as an id.
+  @Get('institutions')
+  @ApiOperation({ summary: 'Search/list institutions from the lakehouse, paginated' })
+  listInstitutions(@Query() q: InstitutionsQueryDto) {
+    return this.works.listInstitutions({
+      search: q.search,
+      limit: q.limit ?? 50,
+      offset: q.offset ?? 0,
+      sortBy: q.sortBy,
+      sortDir: q.sortDir,
+    });
+  }
+
   @Get('institutions/:id/works')
   institutionWorks(@Param('id') id: string) {
     return this.works.institutionWorks(id);
+  }
+
+  @Get('institutions/:id/authors')
+  @ApiOperation({ summary: 'Authors affiliated with a given institution' })
+  institutionAuthors(@Param('id') id: string) {
+    return this.works.institutionAuthors(id);
+  }
+
+  // Must come after institutions/map, institutions/search, and institutions/:id/* above,
+  // or Nest matches "map"/"search" as this route's :id instead.
+  @Get('institutions/:id')
+  @ApiOperation({ summary: 'Single institution detail' })
+  getInstitution(@Param('id') id: string) {
+    return this.works.getInstitution(id);
   }
 
   @Get(':id/institutions')

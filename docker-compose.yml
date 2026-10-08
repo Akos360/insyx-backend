@@ -1,26 +1,9 @@
 services:
-  postgres:
-    image: postgres:16
-    container_name: insyx-postgres
-    environment:
-      POSTGRES_USER: ${DB_USER:-insyx}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-insyx}
-      POSTGRES_DB: ${DB_NAME:-insyx}
-    ports:
-      # Host-side port only; changing this does not affect the backend container,
-      # which always reaches Postgres at postgres:5432 over the internal Docker network.
-      # Default moved off 5432 — insyx-database's own Postgres also claims 5432 on the host.
-      - "${DB_HOST_PORT:-5433}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
   backend:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: insyx-backend
-    depends_on:
-      - postgres
     environment:
       PORT: ${PORT:-3000}
       # Both hostnames are listed since "localhost" resolves to ::1 on this
@@ -28,10 +11,20 @@ services:
       # frontend is actually opened at, the browser's Origin header differs,
       # and a credentialed cross-origin request (cookies) needs an exact match.
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8081,http://127.0.0.1:8081,http://localhost:5173,http://127.0.0.1:5173}
-      DB_HOST: postgres
+      # Accounts now live in insyx-database's own Postgres (database `insyx`,
+      # created by conf/postgres/migrations/001_users.sql + 002_users_auth_compat.sql
+      # there) — not a Postgres container of this repo's own. host.docker.internal
+      # is Docker Desktop's alias for the host machine; 127.0.0.1 here would point
+      # at this container itself. That Postgres is a separate docker-compose
+      # project's shared instance (also backs Nessie's catalog), so its own
+      # admin credentials are used rather than this repo's DB_USER/DB_PASSWORD.
+      # Hardcoded, not ${DB_HOST:-...}: .env's own DB_HOST (127.0.0.1, for running
+      # the backend outside Docker) would otherwise override this default too,
+      # same pitfall TRINO_HOST below avoids the same way.
+      DB_HOST: host.docker.internal
       DB_PORT: 5432
-      DB_USER: ${DB_USER:-insyx}
-      DB_PASSWORD: ${DB_PASSWORD:-insyx}
+      DB_USER: ${DB_USER:-admin}
+      DB_PASSWORD: ${DB_PASSWORD:-password123}
       DB_NAME: ${DB_NAME:-insyx}
       # insyx-database's Trino runs on the host (a separate docker-compose project),
       # not on this network — host.docker.internal is Docker Desktop's alias for the
@@ -51,6 +44,3 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-not-configured.apps.googleusercontent.com}
     ports:
       - "${PORT:-3000}:3000"
-
-volumes:
-  postgres_data:

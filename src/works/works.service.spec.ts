@@ -45,7 +45,7 @@ describe('WorksService SQL building', () => {
 
     it.each(injectionPayloads)('escapes single quotes in the field filter: %s', async (payload) => {
       const [sql] = await capture(() => service.findAll({ field: payload }));
-      expect(sql).toContain(`field = '${payload.replace(/'/g, "''")}'`);
+      expect(sql).toContain(`field_name = '${payload.replace(/'/g, "''")}'`);
     });
 
     it.each(injectionPayloads)('escapes single quotes in the domain filter: %s', async (payload) => {
