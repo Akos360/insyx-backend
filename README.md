@@ -30,6 +30,7 @@ REST API for Insyx — a Science-of-Science Explorer. Built with NestJS and Type
 | GET | `/works` | Paginated, searchable, sortable works list |
 | GET | `/works/:id` | Single work detail (type, dates, topics/keywords, license, APC, etc.) |
 | GET | `/works/:id/co-authors` | Co-authors of a given work |
+| GET | `/works/:id/institutions` | Distinct affiliated institutions with latitude/longitude |
 | GET | `/works/:id/topics` | Scored topic assignments for a given work |
 | GET | `/works/fields` | Distinct field values (for filters) |
 | GET | `/works/domains` | Distinct domain values (for filters) |
@@ -41,9 +42,18 @@ REST API for Insyx — a Science-of-Science Explorer. Built with NestJS and Type
 | GET | `/works/stats/oa-ratio` | Open-access ratio by year |
 | GET | `/works/authors` | Searchable, paginated author list |
 | GET | `/works/authors/:authorId` | Single author detail + their works |
-| GET | `/works/institutions/map` | Zoom/bbox-scoped institution map data (LOD) — currently unused by the frontend, see note below |
+| GET | `/works/institutions/map` | Zoom/bbox-scoped GeoJSON using stored institution coordinates |
 | GET | `/works/institutions/search` | Institution search |
 | GET | `/works/institutions/:id/works` | Works for a given institution |
+
+Work detail includes an `institutions` array with `id`, `name`, `country_code`,
+`latitude`, and `longitude`. A work can belong to multiple institutions through
+its authors' affiliations; repeated authors at one institution produce one entry.
+Institution search also returns `latitude` and `longitude`. Map geometry uses
+`[longitude, latitude]`, preserves exact coordinates, and excludes institutions
+with missing or invalid locations. Apply the updated lakehouse schema before
+running this backend. The database importer supports `--institutions-json` to
+supply coordinates missing from flattened work exports; see the database README.
 
 ### Auth
 

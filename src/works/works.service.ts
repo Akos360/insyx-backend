@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { TrinoService } from '../database/trino.service';
-import { CENTROIDS, MapQuery, maxCount, jitter, inBbox, emptyFC } from '../common/geo.util';
+import { MapQuery, maxCount, inBbox, emptyFC } from '../common/geo.util';
 
 const LAKEHOUSE = 'iceberg.scisci';
 
@@ -37,7 +37,16 @@ export interface WorksPage {
   offset: number;
 }
 
+export interface Institution {
+  id: string;
+  name: string;
+  country_code: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
 export interface WorkDetail {
+  institutions: Institution[];
   id: string;
   doi: string | null;
   title: string;
@@ -271,7 +280,7 @@ export class WorksService {
 
   async findOne(id: string): Promise<WorkDetail | null> {
     // Explicit columns, not SELECT *: the table also has large JSONB blob columns no frontend consumer reads.
-    const rows = await this.trino.query<WorkDetail>(`
+    const rows = await this.trino.query<Omit<WorkDetail, 'institutions'>>(`
       SELECT
         w.id, w.doi, w.title, w.abstract, w.publication_year, w.publication_date,
         w.type, w.language, w.domain, w.field, w.subfield,
@@ -283,7 +292,20 @@ export class WorksService {
       WHERE w.id = ${sqlString(id)}
       LIMIT 1
     `);
-    return rows[0] ?? null;
+    if (!rows[0]) return null;
+    const institutions = await this.workInstitutions(id);
+    return { ...rows[0], institutions };
+  }
+
+  async workInstitutions(workId: string): Promise<Institution[]> {
+    return this.trino.query<Institution>(`
+      SELECT DISTINCT i.institution_id AS id, i.display_name AS name,
+        i.country_code, i.latitude, i.longitude
+      FROM ${LAKEHOUSE}.work_institutions wi
+      JOIN ${LAKEHOUSE}.institutions i ON i.institution_id = wi.institution_id
+      WHERE wi.work_id = ${sqlString(workId)}
+      ORDER BY name, id
+    `);
   }
 
   async statsByYear(filters: WorkFilters = {}): Promise<YearStat[]> {
@@ -483,8 +505,10 @@ export class WorksService {
       country_code: string;
       works_count: number;
       cited_by_count: number;
+      latitude: number | null;
+      longitude: number | null;
     }>(`
-      SELECT institution_id AS id, display_name AS name, country_code, works_count, cited_by_count
+      SELECT institution_id AS id, display_name AS name, country_code, works_count, cited_by_count, latitude, longitude
       FROM ${LAKEHOUSE}.institutions
       WHERE display_name IS NOT NULL
     `);
@@ -492,6 +516,11 @@ export class WorksService {
     if (!rows.length) return emptyFC();
 
     const scored = rows
+      .filter((r) =>
+        r.latitude !== null && r.longitude !== null &&
+        Number.isFinite(Number(r.latitude)) && Number.isFinite(Number(r.longitude)) &&
+        Math.abs(Number(r.latitude)) <= 90 && Math.abs(Number(r.longitude)) <= 180,
+      )
       .map((r) => {
         const wc = Number(r.works_count) || 0;
         const cc = Number(r.cited_by_count) || 0;
@@ -505,9 +534,7 @@ export class WorksService {
     const features = scored
       .map((r) => {
         const score = r.rawScore / maxRaw;
-        const centroid = CENTROIDS[r.country_code] ?? [0, 0];
-        const [jLat, jLng] = jitter(r.id);
-        return { r, score, lat: centroid[0] + jLat, lng: centroid[1] + jLng };
+        return { r, score, lat: Number(r.latitude), lng: Number(r.longitude) };
       })
       .filter(({ lat, lng }) => inBbox(lat, lng, query))
       .slice(0, limit);
@@ -537,8 +564,10 @@ export class WorksService {
       country_code: string;
       works_count: number;
       cited_by_count: number;
+      latitude: number | null;
+      longitude: number | null;
     }>(`
-      SELECT institution_id AS id, display_name AS name, country_code, works_count, cited_by_count
+      SELECT institution_id AS id, display_name AS name, country_code, works_count, cited_by_count, latitude, longitude
       FROM ${LAKEHOUSE}.institutions
       WHERE LOWER(display_name) LIKE LOWER(${term})
       ORDER BY works_count DESC
@@ -548,6 +577,8 @@ export class WorksService {
       id: r.id,
       name: r.name,
       countryCode: r.country_code ?? '',
+      latitude: r.latitude,
+      longitude: r.longitude,
       workCount: Number(r.works_count),
       citationCount: Number(r.cited_by_count),
     }));

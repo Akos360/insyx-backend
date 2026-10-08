@@ -152,3 +152,59 @@ describe('WorksService SQL building', () => {
     });
   });
 });
+
+describe('WorksService institution locations', () => {
+  let service: WorksService;
+  let trino: { query: jest.Mock };
+  const world = { zoom: 0, minLat: -90, maxLat: 90, minLng: -180, maxLng: 180 };
+  const institution = (id: string, latitude: number | null, longitude: number | null) => ({
+    id, name: id, country_code: 'SK', works_count: 5, cited_by_count: 10, latitude, longitude,
+  });
+
+  beforeEach(() => {
+    trino = { query: jest.fn() };
+    service = new WorksService(trino as unknown as TrinoService);
+  });
+
+  it('uses exact stored coordinates in longitude/latitude order, including zero', async () => {
+    trino.query.mockResolvedValue([institution('I1', 48.15, 17.1), institution('I2', 0, 0)]);
+    const result = await service.institutionsMap(world);
+    expect(result.features.map((f) => f.geometry.coordinates)).toEqual([[17.1, 48.15], [0, 0]]);
+  });
+
+  it('excludes missing, nonfinite and out-of-range coordinates', async () => {
+    trino.query.mockResolvedValue([
+      institution('I1', null, 17), institution('I2', 48, null),
+      institution('I3', 91, 17), institution('I4', 48, -181),
+      institution('I5', NaN, 17), institution('I6', 48, Infinity),
+    ]);
+    expect(await service.institutionsMap(world)).toEqual({ type: 'FeatureCollection', features: [] });
+  });
+
+  it('filters by the actual location and supports antimeridian bounds', async () => {
+    trino.query.mockResolvedValue([
+      institution('east', 0, 179), institution('west', 0, -179), institution('outside', 0, 17),
+    ]);
+    const result = await service.institutionsMap({ ...world, minLng: 170, maxLng: -170 });
+    expect(result.features.map((f) => f.id)).toEqual(['east', 'west']);
+  });
+
+  it('returns affiliations in work detail without multiplying the work row', async () => {
+    const institutions = [institution('I1', 48, 17), institution('I2', 49, 18)];
+    trino.query.mockResolvedValueOnce([{ id: 'W1', title: 'Shared work' }]).mockResolvedValueOnce(institutions);
+    expect(await service.findOne('W1')).toEqual({ id: 'W1', title: 'Shared work', institutions });
+    expect(trino.query.mock.calls[1][0]).toContain('SELECT DISTINCT');
+  });
+
+  it('does not fetch affiliations when the work does not exist', async () => {
+    trino.query.mockResolvedValueOnce([]);
+    expect(await service.findOne('missing')).toBeNull();
+    expect(trino.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('escapes the work ID when fetching institutions', async () => {
+    trino.query.mockResolvedValue([]);
+    await service.workInstitutions("W1' OR '1'='1");
+    expect(trino.query.mock.calls[0][0]).toContain("WHERE wi.work_id = 'W1'' OR ''1''=''1'");
+  });
+});
