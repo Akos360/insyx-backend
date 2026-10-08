@@ -140,6 +140,12 @@ export class WorksController {
     return this.works.institutionWorks(id);
   }
 
+  @Get(':id/institutions')
+  @ApiOperation({ summary: 'Institutions affiliated with a work, including map coordinates' })
+  workInstitutions(@Param('id') id: string) {
+    return this.works.workInstitutions(id);
+  }
+
   @Get(':id/co-authors')
   coAuthors(@Param('id') id: string) {
     return this.works.coAuthors(id);
