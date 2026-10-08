@@ -8,6 +8,9 @@ import { AuthorsModule } from './authors/authors.module';
 import { InstitutionsModule } from './institutions/institutions.module';
 import { Paper } from './papers/paper.entity';
 import { Author } from './authors/author.entity';
+import { User } from './users/user.entity';
+import { UsersModule } from './users/users.module';
+import { CreateUsers1791450000000 } from './migrations/1791450000000-CreateUsers';
 
 @Module({
   imports: [
@@ -22,13 +25,16 @@ import { Author } from './authors/author.entity';
         username: config.get<string>('DB_USER', 'insyx'),
         password: config.get<string>('DB_PASSWORD', 'insyx'),
         database: config.get<string>('DB_NAME', 'insyx'),
-        entities: [Paper, Author],
+        entities: [Paper, Author, User],
+        migrations: [CreateUsers1791450000000],
+        migrationsRun: true,
         synchronize: true, // auto-creates tables in dev; disable in production
       }),
     }),
     PapersModule,
     AuthorsModule,
     InstitutionsModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [AppService],
