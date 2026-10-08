@@ -1,87 +1,134 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
+import type { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './user.entity';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
   constructor(
-    @InjectRepository(User) private readonly users: Repository<User>,
+    @InjectRepository(User)
+    private readonly users: Repository<User>,
   ) {}
 
-  async create(input: CreateUserDto): Promise<User> {
+  findByEmail(email: string): Promise<User | null> {
+    return this.users.findOneBy({ email: email.trim().toLowerCase() });
+  }
+
+  findById(id: string): Promise<User | null> {
+    return this.users.findOneBy({ id });
+  }
+
+  create(email: string, passwordHash: string): Promise<User> {
+    const user = this.users.create({ email: email.trim().toLowerCase(), passwordHash });
+    return this.save(user);
+  }
+
+  findByGoogleId(googleId: string): Promise<User | null> {
+    return this.users.findOneBy({ googleId });
+  }
+
+  createFromGoogle(email: string, googleId: string): Promise<User> {
     const user = this.users.create({
-      email: input.email.trim().toLowerCase(),
-      displayName: input.displayName.trim(),
-      avatarUrl: input.avatarUrl ?? null,
-      emailVerified: false,
-      lastLoginAt: null,
+      email: email.trim().toLowerCase(),
+      passwordHash: null,
+      googleId,
+      emailVerified: true,
     });
-    await this.save(user);
-    return this.findOne(user.id);
+    return this.save(user);
   }
 
-  async findAll(limit = 20, offset = 0) {
-    const [items, total] = await this.users.findAndCount({
-      take: limit,
-      skip: offset,
-      order: { createdAt: 'DESC', id: 'ASC' },
-    });
-    return { items, total, limit, offset };
+  async linkGoogleId(userId: string, googleId: string): Promise<void> {
+    await this.users.update({ id: userId }, { googleId, emailVerified: true });
   }
 
-  async findOne(id: string): Promise<User> {
-    const user = await this.users.findOneBy({ id });
+  async setResetToken(userId: string, tokenHash: string, expiresAt: Date): Promise<void> {
+    await this.users.update({ id: userId }, { resetTokenHash: tokenHash, resetTokenExpiresAt: expiresAt });
+  }
+
+  findByResetTokenHash(tokenHash: string): Promise<User | null> {
+    return this.users.findOneBy({ resetTokenHash: tokenHash });
+  }
+
+  async clearResetToken(userId: string): Promise<void> {
+    await this.users.update({ id: userId }, { resetTokenHash: null, resetTokenExpiresAt: null });
+  }
+
+  async updatePassword(userId: string, passwordHash: string): Promise<void> {
+    await this.users.update({ id: userId }, { passwordHash });
+  }
+
+  async updateProfile(userId: string, updates: UpdateUserDto): Promise<void> {
+    const patch: Partial<
+      Pick<User, 'name' | 'email' | 'affiliation' | 'avatarUrl' | 'emailVerified'>
+    > = {};
+    if (updates.name !== undefined) patch.name = updates.name;
+    if (updates.affiliation !== undefined) patch.affiliation = updates.affiliation;
+    if (updates.avatarUrl !== undefined) patch.avatarUrl = updates.avatarUrl;
+    if (updates.email !== undefined) {
+      patch.email = updates.email.trim().toLowerCase();
+      const current = await this.findById(userId);
+      if (current && patch.email !== current.email) patch.emailVerified = false;
+    }
+    if (Object.keys(patch).length === 0) return;
+
+    try {
+      await this.users.update({ id: userId }, patch);
+    } catch (error) {
+      this.rethrowDatabaseError(error);
+    }
+  }
+
+  async getProfile(userId: string) {
+    const user = await this.findById(userId);
     if (!user) throw new NotFoundException('User not found');
-    return user;
+    // Explicit response projection: never expose credentials or Google identifiers.
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      affiliation: user.affiliation,
+      avatarUrl: user.avatarUrl,
+      emailVerified: user.emailVerified,
+      lastLoginAt: user.lastLoginAt,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
   }
 
-  async update(id: string, input: UpdateUserDto): Promise<User> {
-    const user = await this.findOne(id);
-    if (input.email !== undefined) {
-      const email = input.email.trim().toLowerCase();
-      if (email !== user.email) {
-        // Email changes on linked accounts belong in a future verified-email flow.
-        const linked = await this.users
-          .createQueryBuilder('user')
-          .addSelect('user.googleSubject')
-          .where('user.id = :id', { id })
-          .getOne();
-        if (linked?.googleSubject) {
-          throw new ConflictException(
-            'A Google-linked email cannot be changed through the profile API',
-          );
-        }
-        user.email = email;
-        user.emailVerified = false;
-      }
+  async updateSelf(userId: string, input: UpdateUserDto) {
+    if (
+      [input.email, input.name, input.affiliation, input.avatarUrl].every(
+        (value) => value === undefined,
+      )
+    ) {
+      throw new BadRequestException('At least one profile field is required');
     }
-    if (input.displayName !== undefined) {
-      user.displayName = input.displayName.trim();
-    }
-    if (input.avatarUrl !== undefined) user.avatarUrl = input.avatarUrl;
-    await this.save(user);
-    return this.findOne(id);
+    await this.getProfile(userId);
+    await this.updateProfile(userId, input);
+    return this.getProfile(userId);
   }
 
-  async remove(id: string): Promise<void> {
-    const result = await this.users.delete(id);
+  async remove(userId: string): Promise<void> {
+    const result = await this.users.delete({ id: userId });
     if (!result.affected) throw new NotFoundException('User not found');
   }
 
-  private async save(user: User): Promise<void> {
+  private async save(user: User): Promise<User> {
     try {
-      await this.users.save(user);
+      return await this.users.save(user);
     } catch (error) {
-      if (
-        error instanceof QueryFailedError &&
-        (error.driverError as { code?: string }).code === '23505'
-      ) {
-        throw new ConflictException('A user with this email already exists');
-      }
-      throw error;
+      return this.rethrowDatabaseError(error);
     }
+  }
+
+  private rethrowDatabaseError(error: unknown): never {
+    if (
+      error instanceof QueryFailedError &&
+      (error.driverError as { code?: string }).code === '23505'
+    ) {
+      throw new ConflictException('An account with this email or Google identity already exists');
+    }
+    throw error;
   }
 }

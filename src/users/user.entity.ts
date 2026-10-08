@@ -1,55 +1,48 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  PrimaryGeneratedColumn,
-  UpdateDateColumn,
-} from 'typeorm';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
-// Managed by migration rather than TypeORM's development synchronization.
+/** Application account store shared by authentication and profile APIs. */
 @Entity({ name: 'users', schema: 'public', synchronize: false })
 export class User {
-  @ApiProperty({ format: 'uuid' })
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ApiProperty({ example: 'user@example.com' })
   @Column({ type: 'varchar', length: 254, unique: true })
   email: string;
 
-  @ApiProperty({ example: 'Alex Smith' })
-  @Column({ name: 'display_name', type: 'varchar', length: 100 })
-  displayName: string;
+  // Not collected at registration — only ever set via the Settings page.
+  @Column({ type: 'varchar', nullable: true })
+  name: string | null;
 
-  @ApiPropertyOptional({ nullable: true })
-  @Column({ name: 'avatar_url', type: 'varchar', length: 2048, nullable: true })
+  @Column({ type: 'varchar', nullable: true })
+  affiliation: string | null;
+
+  @Column({ type: 'varchar', length: 2048, nullable: true })
   avatarUrl: string | null;
 
-  // Only a future authentication service may assign a verified Google token's sub.
-  @Column({
-    name: 'google_subject',
-    type: 'varchar',
-    length: 255,
-    unique: true,
-    nullable: true,
-    select: false,
-  })
-  googleSubject: string | null;
-
-  @ApiProperty()
-  @Column({ name: 'email_verified', default: false })
+  @Column({ default: false })
   emailVerified: boolean;
 
-  @ApiPropertyOptional({ nullable: true })
-  @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastLoginAt: Date | null;
 
-  @ApiProperty()
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  // Null for Google-only accounts — login() must reject this explicitly, not call bcrypt.compare(null).
+  @Column({ type: 'varchar', nullable: true })
+  passwordHash: string | null;
+
+  // Google's "sub" claim — set once a user links or signs up via Google.
+  @Column({ type: 'varchar', unique: true, nullable: true })
+  googleId: string | null;
+
+  // SHA-256, not bcrypt: a high-entropy random token doesn't need bcrypt's deliberate slowness.
+  @Column({ type: 'varchar', nullable: true })
+  resetTokenHash: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  resetTokenExpiresAt: Date | null;
+
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @ApiProperty()
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 }

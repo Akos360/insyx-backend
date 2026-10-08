@@ -44,6 +44,10 @@ lerna-debug.log*
 .env.production.local
 .env.local
 
+# Claude Code agent notes — local working context, not part of the project deliverable
+CLAUDE.md
+CLAUDE.local.md
+
 # temp directory
 .temp
 .tmp
@@ -57,5 +61,7 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-# seed data
-seed.ts
+# sample seed data (local dev scaffolding, not real data) — moved to data-sample/,
+# out of src/, since it's not used by the running app (kept in case it's wanted
+# again). The two entity files alongside it stay tracked.
+data-sample/seed-sample-data.ts
